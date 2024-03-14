@@ -23,7 +23,7 @@ func init() {
 	fmt.Println("ver:", runtime.Version())
 	fmt.Println("auth:", "95eh")
 	fmt.Println("email:", "eh95@qq.com")
-	fmt.Println("site:", "https://95eh.com/eh")
+	fmt.Println("site:", "https://15m.games/category/Kiwi")
 	fmt.Println("path:", util.WorkDir()+"/"+util.ExeName())
 	fmt.Println("time:", time.Now().Format(time.DateTime))
 }
