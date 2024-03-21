@@ -10,11 +10,10 @@ import (
 )
 
 var (
-	_Parallel         *parallel
-	_ParallelNum      int
-	_WorkerNum        int
-	_WorkerNum32      uint32
-	_JobParallelCount int
+	_Parallel    *parallel
+	_ParallelNum int
+	_WorkerNum   int
+	_WorkerNum32 uint32
 )
 
 func init() {
@@ -24,12 +23,7 @@ func init() {
 	}
 	_WorkerNum = _ParallelNum - 1
 	_WorkerNum32 = uint32(_WorkerNum)
-	_JobParallelCount = _JobUnit * _WorkerNum
 }
-
-const (
-	_JobUnit = 128
-)
 
 type parallel struct {
 	workers []*parallelWorker
@@ -58,9 +52,9 @@ func PushPJob(job IJob) {
 	_Parallel.workers[idx%_WorkerNum32].PushJob(job)
 }
 
-func getAvgCount(l int) int {
-	if l < _JobParallelCount {
-		return _JobUnit
+func getAvgCount(l, min int) int {
+	if l < min*_WorkerNum {
+		return min
 	}
 	num := _ParallelNum
 	count := l / num
@@ -70,16 +64,16 @@ func getAvgCount(l int) int {
 	return count
 }
 
-func PFn(fns []util.FnAnySlc, params ...any) {
+func PFn(min int, fns []util.FnAnySlc, params ...any) {
 	l := len(fns)
-	if l <= _JobUnit {
+	if l <= min {
 		for _, fn := range fns {
 			fn(params)
 		}
 		return
 	}
 	var wg sync.WaitGroup
-	avg := getAvgCount(l)
+	avg := getAvgCount(l, min)
 	var end int
 	for start := avg; end < l; start += avg {
 		end = start + avg
@@ -101,16 +95,16 @@ func PFn(fns []util.FnAnySlc, params ...any) {
 	wg.Wait()
 }
 
-func P[DT any](data []DT, fn func(DT)) {
+func P[DT any](min int, data []DT, fn func(DT)) {
 	l := len(data)
-	if l < _JobUnit {
+	if l < min {
 		for _, d := range data {
 			fn(d)
 		}
 		return
 	}
 	var wg sync.WaitGroup
-	avg := getAvgCount(l)
+	avg := getAvgCount(l, min)
 	var end int
 	for start := avg; end < l; start += avg {
 		end = start + avg
@@ -134,9 +128,9 @@ func P[DT any](data []DT, fn func(DT)) {
 	wg.Wait()
 }
 
-func PFilter[DT1 any, DT2 comparable](data []DT1, fn func(DT1) (DT2, bool), complete func([]DT2)) {
+func PFilter[DT1 any, DT2 comparable](min int, data []DT1, fn func(DT1) (DT2, bool), complete func([]DT2)) {
 	l := len(data)
-	if l < _JobUnit {
+	if l < min {
 		slc := make([]DT2, 0, l)
 		for _, d := range data {
 			item, ok := fn(d)
@@ -151,7 +145,7 @@ func PFilter[DT1 any, DT2 comparable](data []DT1, fn func(DT1) (DT2, bool), comp
 	}
 	var wg sync.WaitGroup
 	all := make([]*ds.Array[DT2], 0, _WorkerNum)
-	avg := getAvgCount(l)
+	avg := getAvgCount(l, min)
 	var end int
 	for start := avg; end < l; start += avg {
 		end = start + avg
@@ -194,16 +188,16 @@ func PFilter[DT1 any, DT2 comparable](data []DT1, fn func(DT1) (DT2, bool), comp
 	}
 }
 
-func PParams[DT any](data []DT, fn func(DT, []any), params ...any) {
+func PParams[DT any](min int, data []DT, fn func(DT, []any), params ...any) {
 	l := len(data)
-	if l < _JobUnit {
+	if l < min {
 		for _, d := range data {
 			fn(d, params)
 		}
 		return
 	}
 	var wg sync.WaitGroup
-	avg := getAvgCount(l)
+	avg := getAvgCount(l, min)
 	var end int
 	for start := avg; end < l; start += avg {
 		end = start + avg
@@ -228,9 +222,52 @@ func PParams[DT any](data []DT, fn func(DT, []any), params ...any) {
 	wg.Wait()
 }
 
-func PToFnLink[DT any](data []DT, fn func(DT, *ds.FnLink)) {
+func PToLink[InT, OutT any](min int, data []InT, fn func(InT, *ds.Link[OutT]),
+	pcr func(*ds.Link[OutT])) {
 	l := len(data)
-	if l <= _JobUnit {
+	if l <= min {
+		buffer := ds.NewLink[OutT]()
+		for _, d := range data {
+			fn(d, buffer)
+		}
+		pcr(buffer)
+		return
+	}
+	var wg sync.WaitGroup
+	avg := getAvgCount(l, min)
+	var end int
+	buffers := make([]*ds.Link[OutT], 0, _WorkerNum)
+	for start := avg; end < l; start += avg {
+		end = start + avg
+		if end > l {
+			end = l
+		}
+		wg.Add(1)
+		buffer := ds.NewLink[OutT]()
+		buffers = append(buffers, buffer)
+		PushPJob(&slcToLnkJob[InT, OutT]{
+			buffer: buffer,
+			data:   data,
+			start:  start,
+			end:    end,
+			fn:     fn,
+			wg:     &wg,
+		})
+	}
+	buffer := ds.NewLink[OutT]()
+	for idx := 0; idx < avg; idx++ {
+		fn(data[idx], buffer)
+	}
+	pcr(buffer)
+	wg.Wait()
+	for _, b := range buffers {
+		pcr(b)
+	}
+}
+
+func PToFnLink[DT any](min int, data []DT, fn func(DT, *ds.FnLink)) {
+	l := len(data)
+	if l <= min {
 		buffer := ds.NewFnLink()
 		for _, d := range data {
 			fn(d, buffer)
@@ -240,7 +277,7 @@ func PToFnLink[DT any](data []DT, fn func(DT, *ds.FnLink)) {
 		return
 	}
 	var wg sync.WaitGroup
-	avg := getAvgCount(l)
+	avg := getAvgCount(l, min)
 	var end int
 	buffers := make([]*ds.FnLink, 0, _WorkerNum)
 	for start := avg; end < l; start += avg {
@@ -275,9 +312,57 @@ func PToFnLink[DT any](data []DT, fn func(DT, *ds.FnLink)) {
 	}
 }
 
-func PParamsToFnLink[DT any](data []DT, fn func(DT, []any, *ds.FnLink), params ...any) {
+func PParamsToToLink[InT, OutT any](min int, data []InT, fn func(InT, []any, *ds.Link[OutT]),
+	pcr func(*ds.Link[OutT]), params ...any) {
 	l := len(data)
-	if l <= _JobUnit {
+	if l <= min {
+		buffer := ds.NewLink[OutT]()
+		for _, d := range data {
+			fn(d, params, buffer)
+		}
+		pcr(buffer)
+		return
+	}
+	count := l / _WorkerNum
+	if l%_WorkerNum != 0 {
+		count++
+	}
+	var wg sync.WaitGroup
+	avg := getAvgCount(l, min)
+	var end int
+	buffers := make([]*ds.Link[OutT], 0, _WorkerNum)
+	for start := avg; end < l; start += avg {
+		end = start + avg
+		if end > l {
+			end = l
+		}
+		wg.Add(1)
+		buffer := ds.NewLink[OutT]()
+		buffers = append(buffers, buffer)
+		PushPJob(&slcToLnkJobParams[InT, OutT]{
+			buffer: buffer,
+			data:   data,
+			start:  start,
+			end:    end,
+			fn:     fn,
+			wg:     &wg,
+			params: params,
+		})
+	}
+	buffer := ds.NewLink[OutT]()
+	for idx := 0; idx < avg; idx++ {
+		fn(data[idx], params, buffer)
+	}
+	pcr(buffer)
+	wg.Wait()
+	for _, b := range buffers {
+		pcr(b)
+	}
+}
+
+func PParamsToFnLink[DT any](min int, data []DT, fn func(DT, []any, *ds.FnLink), params ...any) {
+	l := len(data)
+	if l <= min {
 		buffer := ds.NewFnLink()
 		for _, d := range data {
 			fn(d, params, buffer)
@@ -287,7 +372,7 @@ func PParamsToFnLink[DT any](data []DT, fn func(DT, []any, *ds.FnLink), params .
 		return
 	}
 	var wg sync.WaitGroup
-	avg := getAvgCount(l)
+	avg := getAvgCount(l, min)
 	var end int
 	buffers := make([]*ds.FnLink, 0, _WorkerNum)
 	for start := avg; end < l; start += avg {
@@ -320,97 +405,6 @@ func PParamsToFnLink[DT any](data []DT, fn func(DT, []any, *ds.FnLink), params .
 	for _, b := range buffers {
 		b.Invoke()
 		b.Dispose()
-	}
-}
-
-func PToLink[InT, OutT any](data []InT, fn func(InT, *ds.Link[OutT]),
-	pcr func(*ds.Link[OutT])) {
-	l := len(data)
-	if l <= _JobUnit {
-		buffer := ds.NewLink[OutT]()
-		for _, d := range data {
-			fn(d, buffer)
-		}
-		pcr(buffer)
-		return
-	}
-	var wg sync.WaitGroup
-	avg := getAvgCount(l)
-	var end int
-	buffers := make([]*ds.Link[OutT], 0, _WorkerNum)
-	for start := avg; end < l; start += avg {
-		end = start + avg
-		if end > l {
-			end = l
-		}
-		wg.Add(1)
-		buffer := ds.NewLink[OutT]()
-		buffers = append(buffers, buffer)
-		PushPJob(&slcToLnkJob[InT, OutT]{
-			buffer: buffer,
-			data:   data,
-			start:  start,
-			end:    end,
-			fn:     fn,
-			wg:     &wg,
-		})
-	}
-	buffer := ds.NewLink[OutT]()
-	for idx := 0; idx < avg; idx++ {
-		fn(data[idx], buffer)
-	}
-	pcr(buffer)
-	wg.Wait()
-	for _, b := range buffers {
-		pcr(b)
-	}
-}
-
-func PParamsToToLink[InT, OutT any](data []InT, fn func(InT, []any, *ds.Link[OutT]),
-	pcr func(*ds.Link[OutT]), params ...any) {
-	l := len(data)
-	if l <= _JobUnit {
-		buffer := ds.NewLink[OutT]()
-		for _, d := range data {
-			fn(d, params, buffer)
-		}
-		pcr(buffer)
-		return
-	}
-	count := l / _WorkerNum
-	if l%_WorkerNum != 0 {
-		count++
-	}
-	var wg sync.WaitGroup
-	avg := getAvgCount(l)
-	var end int
-	buffers := make([]*ds.Link[OutT], 0, _WorkerNum)
-	for start := avg; end < l; start += avg {
-		end = start + avg
-		if end > l {
-			end = l
-		}
-		wg.Add(1)
-		buffer := ds.NewLink[OutT]()
-		buffers = append(buffers, buffer)
-		PushPJob(&slcToLnkJobParams[InT, OutT]{
-			buffer: buffer,
-			data:   data,
-			start:  start,
-			end:    end,
-			fn:     fn,
-			wg:     &wg,
-			params: params,
-		})
-	}
-	buffer := ds.NewLink[OutT]()
-	for idx := 0; idx < avg; idx++ {
-		fn(data[idx], params, buffer)
-	}
-	pcr(buffer)
-	wg.Wait()
-	for _, b := range buffers {
-		pcr(b)
 	}
 }
 

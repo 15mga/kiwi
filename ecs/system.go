@@ -17,6 +17,7 @@ func NewSystem(t TSystem) System {
 type jobData struct {
 	slc    *ds.Array[*worker.Job]
 	worker jobWorker
+	min    int
 }
 
 type System struct {
@@ -106,7 +107,7 @@ func (s *System) DoJob(name JobName) {
 	}
 	slc := d.slc.Values()
 	if len(slc) > 0 {
-		d.worker.Do(slc)
+		d.worker.Do(d.min, slc)
 		d.slc.Reset()
 	}
 }
@@ -120,93 +121,119 @@ func (s *System) BindJob(name JobName, fn util.FnAnySlc) {
 	}
 }
 
-func (s *System) BindPJob(name JobName, fn util.FnAnySlc) {
+func (s *System) BindPJob(name JobName, min int, fn util.FnAnySlc) {
 	s.jobNameToData[name] = &jobData{
 		slc: ds.NewArray[*worker.Job](8),
 		worker: &pWorker{
-			fn: fn,
+			fn:  fn,
+			min: min,
 		},
 	}
 }
 
-func (s *System) BindPFnJob(name JobName, fn FnLinkAnySlc) {
+func (s *System) BindPFnJob(name JobName, min int, fn FnLinkAnySlc) {
 	s.jobNameToData[name] = &jobData{
 		slc: ds.NewArray[*worker.Job](8),
 		worker: &pLinkWorker{
-			fn: fn,
+			fn:  fn,
+			min: min,
 		},
 	}
 }
 
-func (s *System) PTagComponents(tag string, fn func(IComponent)) ([]IComponent, bool) {
+func (s *System) PTagComponents(tag string, min int, fn func(IComponent)) ([]IComponent, bool) {
 	components, ok := s.Scene().GetTagComponents(tag)
 	if !ok {
 		return nil, false
 	}
-	worker.P[IComponent](components, fn)
+	worker.P[IComponent](min, components, fn)
 	return components, true
 }
 
-func (s *System) PTagComponentsWithParams(tag string, fn func(IComponent, []any), params ...any) ([]IComponent, bool) {
+func (s *System) PTagComponentsWithParams(tag string, min int, fn func(IComponent, []any), params ...any) ([]IComponent, bool) {
 	components, ok := s.Scene().GetTagComponents(tag)
 	if !ok {
 		return nil, false
 	}
-	worker.PParams[IComponent](components, fn, params...)
+	worker.PParams[IComponent](min, components, fn, params...)
 	return components, true
 }
 
-func (s *System) PTagComponentsToFnLink(tag string, fn func(IComponent, *ds.FnLink)) ([]IComponent, bool) {
+func (s *System) PTagComponentsToFnLink(tag string, min int, fn func(IComponent, *ds.FnLink)) ([]IComponent, bool) {
 	components, ok := s.Scene().GetTagComponents(tag)
 	if !ok {
 		return nil, false
 	}
-	worker.PToFnLink[IComponent](components, fn)
+	worker.PToFnLink[IComponent](min, components, fn)
 	return components, true
 }
 
-func (s *System) PTagComponentsToFnLinkWithParams(tag string, fn func(IComponent, []any, *ds.FnLink), params ...any) ([]IComponent, bool) {
+func (s *System) PTagComponentsToFnLinkWithParams(tag string, min int, fn func(IComponent, []any, *ds.FnLink), params ...any) ([]IComponent, bool) {
 	components, ok := s.Scene().GetTagComponents(tag)
 	if !ok {
 		return nil, false
 	}
-	worker.PParamsToFnLink[IComponent](components, fn, params...)
+	worker.PParamsToFnLink[IComponent](min, components, fn, params...)
 	return components, true
 }
 
-func (s *System) PEntities(fn func(*Entity)) []*Entity {
-	entities := s.Scene().Entities()
-	worker.P[*Entity](entities, fn)
-	return entities
-}
-
-func (s *System) PEntitiesWithParams(fn func(*Entity, []any), params ...any) []*Entity {
-	entities := s.Scene().Entities()
-	worker.PParams[*Entity](entities, fn, params...)
-	return entities
-}
-
-func PTagComponentsTo[T comparable](s *System, tag string, fn func(IComponent) (T, bool), complete func([]T)) ([]IComponent, bool) {
+func PTo[T comparable](s ISystem, tag string, min int, fn func(IComponent) (T, bool), complete func([]T)) ([]IComponent, bool) {
 	components, ok := s.Scene().GetTagComponents(tag)
 	if !ok {
 		return nil, false
 	}
-	worker.PFilter[IComponent, T](components, fn, complete)
+	worker.PFilter[IComponent, T](min, components, fn, complete)
 	return components, true
 }
 
-func PTagComponentsToLink[T any](s *Scene, tag string, fn func(IComponent, *ds.Link[T]), pcr func(*ds.Link[T])) ([]IComponent, bool) {
-	components, ok := s.GetTagComponents(tag)
+func PToLink[T any](s ISystem, tag string, min int, fn func(IComponent, *ds.Link[T]), pcr func(*ds.Link[T])) ([]IComponent, bool) {
+	components, ok := s.Scene().GetTagComponents(tag)
 	if !ok {
 		return nil, false
 	}
-	worker.PToLink[IComponent, T](components, fn, pcr)
+	worker.PToLink[IComponent, T](min, components, fn, pcr)
+	return components, true
+}
+
+func PToFnLink(s ISystem, tag string, min int, fn func(IComponent, *ds.FnLink)) ([]IComponent, bool) {
+	components, ok := s.Scene().GetTagComponents(tag)
+	if !ok {
+		return nil, false
+	}
+	worker.PToFnLink[IComponent](min, components, fn)
+	return components, true
+}
+
+func PParamsToToLink[T any](s ISystem, tag string, min int, fn func(IComponent, []any, *ds.Link[T]), pcr func(*ds.Link[T]), params ...any) ([]IComponent, bool) {
+	components, ok := s.Scene().GetTagComponents(tag)
+	if !ok {
+		return nil, false
+	}
+	worker.PParamsToToLink[IComponent, T](min, components, fn, pcr, params...)
+	return components, true
+}
+
+func PParamsToFnLink(s ISystem, tag string, min int, fn func(IComponent, []any, *ds.FnLink), params ...any) ([]IComponent, bool) {
+	components, ok := s.Scene().GetTagComponents(tag)
+	if !ok {
+		return nil, false
+	}
+	worker.PParamsToFnLink[IComponent](min, components, fn, params...)
+	return components, true
+}
+
+func PFilter[T comparable](s ISystem, tag string, min int, fn func(IComponent) (T, bool), complete func([]T)) ([]IComponent, bool) {
+	components, ok := s.Scene().GetTagComponents(tag)
+	if !ok {
+		return nil, false
+	}
+	worker.PFilter[IComponent, T](min, components, fn, complete)
 	return components, true
 }
 
 type jobWorker interface {
 	Type() TJob
-	Do(jobs []*worker.Job)
+	Do(min int, jobs []*worker.Job)
 }
 
 type defWorker struct {
@@ -217,7 +244,7 @@ func (w *defWorker) Type() TJob {
 	return JobDef
 }
 
-func (w *defWorker) Do(jobs []*worker.Job) {
+func (w *defWorker) Do(min int, jobs []*worker.Job) {
 	for _, j := range jobs {
 		w.fn(j.Data)
 		worker.RecycleJob(j)
@@ -225,30 +252,32 @@ func (w *defWorker) Do(jobs []*worker.Job) {
 }
 
 type pWorker struct {
-	fn util.FnAnySlc
+	fn  util.FnAnySlc
+	min int
 }
 
 func (w *pWorker) Type() TJob {
 	return JobP
 }
 
-func (w *pWorker) Do(jobs []*worker.Job) {
-	worker.P[*worker.Job](jobs, func(j *worker.Job) {
+func (w *pWorker) Do(min int, jobs []*worker.Job) {
+	worker.P[*worker.Job](min, jobs, func(j *worker.Job) {
 		w.fn(j.Data)
 		worker.RecycleJob(j)
 	})
 }
 
 type pLinkWorker struct {
-	fn FnLinkAnySlc
+	fn  FnLinkAnySlc
+	min int
 }
 
 func (w *pLinkWorker) Type() TJob {
 	return JobPLink
 }
 
-func (w *pLinkWorker) Do(jobs []*worker.Job) {
-	worker.PToFnLink(jobs, func(j *worker.Job, link *ds.FnLink) {
+func (w *pLinkWorker) Do(min int, jobs []*worker.Job) {
+	worker.PToFnLink(min, jobs, func(j *worker.Job, link *ds.FnLink) {
 		w.fn(link, j.Data)
 		worker.RecycleJob(j)
 	})
