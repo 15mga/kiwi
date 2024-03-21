@@ -211,7 +211,11 @@ func (l *stdLogger) Log(level kiwi.TLevel, msg, caller string, stack []byte, par
 		return
 	}
 	var buffer util.ByteBuffer
-	buffer.InitCap(256)
+	if stack == nil {
+		buffer.InitCap(512)
+	} else {
+		buffer.InitCap(1024)
+	}
 	switch level {
 	case kiwi.TDebug:
 		buffer.WStringNoLen(l.headLogDebug)
@@ -244,7 +248,7 @@ func (l *stdLogger) Log(level kiwi.TLevel, msg, caller string, stack []byte, par
 
 func (l *stdLogger) Trace(pid, tid int64, caller string, params util.M) {
 	var buffer util.ByteBuffer
-	buffer.InitCap(256)
+	buffer.InitCap(512)
 	buffer.WStringNoLen(l.headSign)
 	buffer.WStringNoLen(l.getTimestamp())
 	buffer.WStringNoLen(" pid:")
@@ -266,7 +270,7 @@ func (l *stdLogger) Span(level kiwi.TLevel, tid int64, msg, caller string, stack
 		return
 	}
 	var buffer util.ByteBuffer
-	buffer.InitCap(256)
+	buffer.InitCap(1024)
 	switch level {
 	case kiwi.TDebug:
 		buffer.WStringNoLen(l.headTraceDebug)

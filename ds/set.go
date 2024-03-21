@@ -68,22 +68,28 @@ func (s *KSet[KT, VT]) AddNX2(key KT, new func() VT) bool {
 	return true
 }
 
+func (s *KSet[KT, VT]) AddRange(items []VT) {
+	l := len(items)
+	s.testGrow(l)
+	for i, item := range items {
+		s.items[s.count+i] = item
+	}
+	s.count += l
+}
+
 func (s *KSet[KT, VT]) add(key KT, item VT) {
-	s.testGrow()
+	s.testGrow(1)
 	s.items[s.count] = item
 	s.keyToIdx[key] = s.count
 	s.count++
 }
 
-func (s *KSet[KT, VT]) testGrow() {
-	if s.count+1 < s.cap {
+func (s *KSet[KT, VT]) testGrow(grow int) {
+	c, ok := util.NextCap(s.count+grow, s.cap, 1024)
+	if !ok {
 		return
 	}
-	if s.cap < 1024 {
-		s.cap = s.cap << 1
-	} else {
-		s.cap *= 2
-	}
+	s.cap = c
 	ns := make([]VT, s.cap)
 	copy(ns, s.items)
 	s.items = ns
@@ -206,6 +212,12 @@ func (s *KSet[KT, VT]) Iter(fn func(VT)) {
 	}
 }
 
+func (s *KSet[KT, VT]) IterKeys(fn func(KT)) {
+	for k := range s.keyToIdx {
+		fn(k)
+	}
+}
+
 func (s *KSet[KT, VT]) Any(fn func(VT) bool) bool {
 	for i := 0; i < s.count; i++ {
 		item := s.items[i]
@@ -233,7 +245,8 @@ func (s *KSet[KT, VT]) CopyKeys(keys *[]KT) {
 }
 
 func (s *KSet[KT, VT]) TestDel(test func(KT, VT) (del bool, brk bool)) {
-	for i := s.count - 1; i > -1; i-- {
+	for i := s.count; i > 0; {
+		i--
 		item := s.items[i]
 		key := s.getKey(item)
 		if ok, brk := test(key, item); ok {

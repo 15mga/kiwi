@@ -83,7 +83,7 @@ type (
 	FnBytes              func([]byte)
 	FnBytesSlc           func([][]byte)
 	BytesToUint16        func([]byte) uint16
-	BytesToUint32        func([]byte) uint32
+	BytesToInt           func([]byte) int
 	BytesToBytes         func([]byte) []byte
 	BytesToM             func([]byte) M
 	BytesToErr           func([]byte) *Err

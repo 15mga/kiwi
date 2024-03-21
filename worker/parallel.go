@@ -12,22 +12,23 @@ import (
 var (
 	_Parallel         *parallel
 	_ParallelNum      int
-	_ParallelNum32    uint32
+	_WorkerNum        int
+	_WorkerNum32      uint32
 	_JobParallelCount int
 )
 
 func init() {
-	n := runtime.NumCPU()
-	if n < 8 {
-		n = 8
+	_ParallelNum = runtime.NumCPU()
+	if _ParallelNum < 8 {
+		_ParallelNum = 8
 	}
-	_ParallelNum = n
-	_ParallelNum32 = uint32(n)
-	_JobParallelCount = _JobUnit * n
+	_WorkerNum = _ParallelNum - 1
+	_WorkerNum32 = uint32(_WorkerNum)
+	_JobParallelCount = _JobUnit * _WorkerNum
 }
 
 const (
-	_JobUnit = 64
+	_JobUnit = 128
 )
 
 type parallel struct {
@@ -39,9 +40,9 @@ func InitParallel() {
 		return
 	}
 	_Parallel = &parallel{
-		workers: make([]*parallelWorker, _ParallelNum),
+		workers: make([]*parallelWorker, _WorkerNum),
 	}
-	for i := 0; i < _ParallelNum; i++ {
+	for i := 0; i < _WorkerNum; i++ {
 		w := newParallelWorker()
 		_Parallel.workers[i] = w
 		go w.start()
@@ -54,15 +55,16 @@ var (
 
 func PushPJob(job IJob) {
 	idx := atomic.AddUint32(&_WorkerIdx, 1)
-	_Parallel.workers[idx%_ParallelNum32].PushJob(job)
+	_Parallel.workers[idx%_WorkerNum32].PushJob(job)
 }
 
 func getAvgCount(l int) int {
 	if l < _JobParallelCount {
 		return _JobUnit
 	}
-	count := l / _ParallelNum
-	if l%_ParallelNum != 0 {
+	num := _ParallelNum
+	count := l / num
+	if l%num != 0 {
 		count++
 	}
 	return count
@@ -132,26 +134,33 @@ func P[DT any](data []DT, fn func(DT)) {
 	wg.Wait()
 }
 
-func PTo[DT1, DT2 any](data []DT1, fn func(DT1) DT2, complete func([]DT2)) {
+func PFilter[DT1 any, DT2 comparable](data []DT1, fn func(DT1) (DT2, bool), complete func([]DT2)) {
 	l := len(data)
 	if l < _JobUnit {
-		slc := make([]DT2, l)
-		for i, d := range data {
-			slc[i] = fn(d)
+		slc := make([]DT2, 0, l)
+		for _, d := range data {
+			item, ok := fn(d)
+			if ok {
+				slc = append(slc, item)
+			}
 		}
-		complete(slc)
+		if len(slc) > 0 {
+			complete(slc)
+		}
 		return
 	}
 	var wg sync.WaitGroup
-	all := make([][]DT2, 0, _ParallelNum)
-	end := _JobUnit << 1
-	for start := _JobUnit; end < l; start = end {
-		wg.Add(1)
+	all := make([]*ds.Array[DT2], 0, _WorkerNum)
+	avg := getAvgCount(l)
+	var end int
+	for start := avg; end < l; start += avg {
+		end = start + avg
 		if end > l {
 			end = l
 		}
-		slc := make([]DT2, 0, end-start)
-		all = append(all, slc)
+		wg.Add(1)
+		arr := ds.NewArray[DT2](end - start)
+		all = append(all, arr)
 		PushPJob(&slcJob[DT1]{
 			slcJobBase: slcJobBase[DT1]{
 				data:  data,
@@ -160,18 +169,28 @@ func PTo[DT1, DT2 any](data []DT1, fn func(DT1) DT2, complete func([]DT2)) {
 				wg:    &wg,
 			},
 			fn: func(d DT1) {
-				slc = append(slc, fn(d))
+				item, ok := fn(d)
+				if ok {
+					arr.Add(item)
+				}
 			},
 		})
 	}
-	slc := make([]DT2, _JobUnit)
-	for idx := 0; idx < _JobUnit; idx++ {
-		slc[idx] = fn(data[idx])
+	slc := make([]DT2, 0, avg)
+	for idx := 0; idx < avg; idx++ {
+		item, ok := fn(data[idx])
+		if ok {
+			slc = append(slc, item)
+		}
 	}
-	complete(slc)
-	wg.Wait()
-	for _, slc := range all {
+	if len(slc) > 0 {
 		complete(slc)
+	}
+	wg.Wait()
+	for _, arr := range all {
+		if arr.Count() > 0 {
+			complete(arr.Values())
+		}
 	}
 }
 
@@ -203,7 +222,7 @@ func PParams[DT any](data []DT, fn func(DT, []any), params ...any) {
 			params: params,
 		})
 	}
-	for idx := 0; idx < _JobUnit; idx++ {
+	for idx := 0; idx < avg; idx++ {
 		fn(data[idx], params)
 	}
 	wg.Wait()
@@ -223,7 +242,7 @@ func PToFnLink[DT any](data []DT, fn func(DT, *ds.FnLink)) {
 	var wg sync.WaitGroup
 	avg := getAvgCount(l)
 	var end int
-	buffers := make([]*ds.FnLink, 0, _ParallelNum)
+	buffers := make([]*ds.FnLink, 0, _WorkerNum)
 	for start := avg; end < l; start += avg {
 		end = start + avg
 		if end > l {
@@ -270,7 +289,7 @@ func PParamsToFnLink[DT any](data []DT, fn func(DT, []any, *ds.FnLink), params .
 	var wg sync.WaitGroup
 	avg := getAvgCount(l)
 	var end int
-	buffers := make([]*ds.FnLink, 0, _ParallelNum)
+	buffers := make([]*ds.FnLink, 0, _WorkerNum)
 	for start := avg; end < l; start += avg {
 		end = start + avg
 		if end > l {
@@ -318,7 +337,7 @@ func PToLink[InT, OutT any](data []InT, fn func(InT, *ds.Link[OutT]),
 	var wg sync.WaitGroup
 	avg := getAvgCount(l)
 	var end int
-	buffers := make([]*ds.Link[OutT], 0, _ParallelNum)
+	buffers := make([]*ds.Link[OutT], 0, _WorkerNum)
 	for start := avg; end < l; start += avg {
 		end = start + avg
 		if end > l {
@@ -358,14 +377,14 @@ func PParamsToToLink[InT, OutT any](data []InT, fn func(InT, []any, *ds.Link[Out
 		pcr(buffer)
 		return
 	}
-	count := l / _ParallelNum
-	if l%_ParallelNum != 0 {
+	count := l / _WorkerNum
+	if l%_WorkerNum != 0 {
 		count++
 	}
 	var wg sync.WaitGroup
 	avg := getAvgCount(l)
 	var end int
-	buffers := make([]*ds.Link[OutT], 0, _ParallelNum)
+	buffers := make([]*ds.Link[OutT], 0, _WorkerNum)
 	for start := avg; end < l; start += avg {
 		end = start + avg
 		if end > l {

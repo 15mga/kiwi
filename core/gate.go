@@ -31,7 +31,7 @@ type (
 		disconnected kiwi.FnAgentErr
 		checkIp      util.StrToBool
 		deadline     int
-		headLen      uint32
+		headLen      int
 		roles        map[kiwi.TSvcCode][]int64
 	}
 )
@@ -90,7 +90,7 @@ func GateDeadlineSecs(deadline int) GateOption {
 	}
 }
 
-func GateHeadLen(headLen uint32) GateOption {
+func GateHeadLen(headLen int) GateOption {
 	return func(option *gateOption) {
 		option.headLen = headLen
 	}

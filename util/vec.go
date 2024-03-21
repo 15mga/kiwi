@@ -237,8 +237,8 @@ type Vec3 struct {
 }
 
 type Vec2Int struct {
-	X int32
-	Y int32
+	X int
+	Y int
 }
 
 func (v Vec2Int) Equal(v1 Vec2Int) bool {

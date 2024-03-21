@@ -31,6 +31,9 @@ func (a *arrayBase[T]) Add(item T) {
 
 func (a *arrayBase[T]) AddRange(items ...T) {
 	l := len(items)
+	if l == 0 {
+		return
+	}
 	a.testGrow(l)
 	for i, item := range items {
 		a.items[a.count+i] = item
@@ -43,32 +46,16 @@ func (a *arrayBase[T]) AddRange(items ...T) {
 //}
 
 func (a *arrayBase[T]) testGrow(n int) {
-	m := a.count + n
-	c := len(a.items)
-	if m < c-1 {
+	c, ok := util.NextCap(a.count+n, len(a.items), 1024)
+	if !ok {
 		return
 	}
-	var l int
-	for {
-		if l < 1024 {
-			l = c << 1
-		} else {
-			l = c * 2
-		}
-		if l >= m {
-			break
-		}
-	}
-
-	ns := make([]T, l)
+	ns := make([]T, c)
 	copy(ns, a.items)
 	a.items = ns
 }
 
-func (a *arrayBase[T]) Clear() {
-	for i := 0; i < a.count; i++ {
-		a.items[i] = a.defVal
-	}
+func (a *arrayBase[T]) Clean() {
 	a.count = 0
 }
 
@@ -76,11 +63,14 @@ func (a *arrayBase[T]) Reset() {
 	if a.count == 0 {
 		return
 	}
-	for i := 0; i < a.count; i++ {
-		a.items[i] = a.defVal
+	if len(a.items) > (a.defCap << 2) {
+		a.items = make([]T, a.defCap)
+	} else {
+		for i := 0; i < a.count; i++ {
+			a.items[i] = a.defVal
+		}
 	}
 	a.count = 0
-	a.items = make([]T, a.defCap)
 }
 
 func (a *arrayBase[T]) Values() []T {

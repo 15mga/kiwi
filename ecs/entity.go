@@ -39,11 +39,7 @@ func (e *Entity) AddComponent(c IComponent) *util.Err {
 		return err
 	}
 	c.setEntity(e)
-	if e.scene == nil {
-		return nil
-	}
 	c.Init()
-	e.scene.onAddComponent(e, c)
 	return nil
 }
 
@@ -54,12 +50,7 @@ func (e *Entity) AddComponents(components ...IComponent) {
 			continue
 		}
 		c.setEntity(e)
-		if e.scene == nil {
-			continue
-		}
-
 		c.Init()
-		e.scene.onAddComponent(e, c)
 	}
 }
 
@@ -68,7 +59,6 @@ func (e *Entity) DelComponent(t TComponent) bool {
 	if !ok {
 		return false
 	}
-	e.scene.onDelComponent(e, t)
 	c.Dispose()
 	return true
 }
@@ -79,6 +69,11 @@ func (e *Entity) GetComponent(t TComponent) (IComponent, bool) {
 		return nil, false
 	}
 	return c, true
+}
+
+func (e *Entity) MGetComponent(t TComponent) IComponent {
+	c, _ := e.comps.Get(t)
+	return c
 }
 
 func (e *Entity) Components() []IComponent {

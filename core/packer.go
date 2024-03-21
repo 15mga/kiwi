@@ -14,7 +14,7 @@ type packer struct {
 
 func (p *packer) PackWatchNotify(id int64, codes []kiwi.TCode) []byte {
 	var buffer util.ByteBuffer
-	buffer.InitCap(11 + uint32(len(codes))*2)
+	buffer.InitCap(11 + len(codes)*2)
 	buffer.WUint8(HdWatch)
 	buffer.WInt64(id)
 	buffer.WUint8s(codes)
@@ -35,7 +35,7 @@ func (p *packer) UnpackWatchNotify(bytes []byte) (id int64, codes []kiwi.TCode, 
 
 func (p *packer) PackPush(tid int64, pus kiwi.ISndPush) ([]byte, *util.Err) {
 	var buffer util.ByteBuffer
-	buffer.InitCap(64)
+	buffer.InitCap(256)
 	buffer.WUint8(HdPush)
 	buffer.WInt64(tid)
 	err := buffer.WMAny(pus.Head())
@@ -95,7 +95,7 @@ func (p *packer) UnpackPushBytes(bytes []byte, head util.M) (tid int64, json boo
 
 func (p *packer) PackRequest(tid int64, req kiwi.ISndRequest) ([]byte, *util.Err) {
 	var buffer util.ByteBuffer
-	buffer.InitCap(64)
+	buffer.InitCap(256)
 	buffer.WUint8(HdRequest)
 	buffer.WInt64(kiwi.GetNodeMeta().NodeId)
 	buffer.WInt64(tid)
@@ -136,7 +136,7 @@ func (p *packer) UnpackRequest(bytes []byte, pkg kiwi.IRcvRequest) (err *util.Er
 
 func (p *packer) PackResponseOk(tid int64, head util.M, pkt []byte) ([]byte, *util.Err) {
 	var buffer util.ByteBuffer
-	buffer.InitCap(64)
+	buffer.InitCap(256)
 	buffer.WUint8(HdOk)
 	buffer.WInt64(tid)
 	err := buffer.WMAny(head)
@@ -199,7 +199,7 @@ func (p *packer) UnpackResponseFail(bytes []byte, head util.M) (tid int64, code 
 
 func (p *packer) PackNotify(tid int64, ntf kiwi.ISndNotice) ([]byte, *util.Err) {
 	var buffer util.ByteBuffer
-	buffer.InitCap(64)
+	buffer.InitCap(256)
 	buffer.WUint8(HdNotify)
 	buffer.WInt64(kiwi.GetNodeMeta().NodeId)
 	buffer.WInt64(tid)
@@ -240,7 +240,7 @@ func (p *packer) UnpackNotify(bytes []byte, pkg kiwi.IRcvNotice) (err *util.Err)
 
 func (p *packer) PackM(m util.M) ([]byte, *util.Err) {
 	var buffer util.ByteBuffer
-	buffer.InitCap(64)
+	buffer.InitCap(256)
 	err := buffer.WMAny(m)
 	if err != nil {
 		return nil, err

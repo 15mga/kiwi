@@ -13,8 +13,8 @@ import (
 )
 
 const (
-	_MinBytesCap = uint32(16)
-	_MaxBytesCap = uint32(1 << 20)
+	_MinBytesCap = 16
+	_MaxBytesCap = 1 << 20
 )
 
 type _BT = uint8
@@ -65,12 +65,12 @@ const (
 )
 
 var (
-	_BytesPoolMap map[uint32]*sync.Pool
+	_BytesPoolMap map[int]*sync.Pool
 	_Empty        []byte
 )
 
 func init() {
-	_BytesPoolMap = make(map[uint32]*sync.Pool)
+	_BytesPoolMap = make(map[int]*sync.Pool)
 	_Empty = make([]byte, _MaxBytesCap)
 	for i := _MinBytesCap; i < _MaxBytesCap; i = i << 1 {
 		l := i
@@ -86,9 +86,9 @@ func SpawnBytes() []byte {
 	return SpawnBytesWithLen(_MinBytesCap)
 }
 
-func SpawnBytesWithLen(l uint32) []byte {
+func SpawnBytesWithLen(l int) []byte {
 	//return make([]byte, l)
-	var c uint32
+	var c int
 	if l < _MinBytesCap {
 		c = _MinBytesCap
 	} else {
@@ -102,7 +102,7 @@ func SpawnBytesWithLen(l uint32) []byte {
 
 func RecycleBytes(bytes []byte) {
 	//return
-	c := uint32(cap(bytes))
+	c := cap(bytes)
 	if c < _MinBytesCap || c > _MaxBytesCap {
 		return
 	}
@@ -115,16 +115,16 @@ func RecycleBytes(bytes []byte) {
 
 func CopyBytes(src []byte) []byte {
 	l := len(src)
-	dst := SpawnBytesWithLen(uint32(l))
+	dst := SpawnBytesWithLen(l)
 	copy(dst, src)
 	return dst[:l]
 }
 
 type ByteBuffer struct {
 	canRecycle bool
-	pos        uint32
-	len        uint32
-	cap        uint32
+	pos        int
+	len        int
+	cap        int
 	bytes      []byte
 }
 
@@ -132,27 +132,27 @@ func (b *ByteBuffer) Reset() {
 	b.pos = 0
 }
 
-func (b *ByteBuffer) InitCap(c uint32) {
+func (b *ByteBuffer) InitCap(c int) {
 	b.pos = 0
 	b.len = 0
 	b.bytes = SpawnBytesWithLen(c)
-	b.cap = uint32(len(b.bytes))
+	b.cap = len(b.bytes)
 	b.canRecycle = true
 }
 
 func (b *ByteBuffer) InitBytes(bytes []byte) {
 	b.pos = 0
-	b.len = uint32(len(bytes))
+	b.len = len(bytes)
 	b.cap = b.len
 	b.bytes = bytes
 	b.canRecycle = false
 }
 
-func (b *ByteBuffer) Pos() uint32 {
+func (b *ByteBuffer) Pos() int {
 	return b.pos
 }
 
-func (b *ByteBuffer) SetPos(v uint32) {
+func (b *ByteBuffer) SetPos(v int) {
 	if v < b.len {
 		b.pos = v
 	} else {
@@ -160,7 +160,7 @@ func (b *ByteBuffer) SetPos(v uint32) {
 	}
 }
 
-func (b *ByteBuffer) Available() uint32 {
+func (b *ByteBuffer) Available() int {
 	return b.len - b.pos
 }
 
@@ -168,15 +168,15 @@ func (b *ByteBuffer) All() []byte {
 	return b.bytes[:b.len]
 }
 
-func (b *ByteBuffer) CopyBytes() ([]byte, uint32) {
+func (b *ByteBuffer) CopyBytes() ([]byte, int) {
 	return CopyBytes(b.bytes[:b.len]), b.len
 }
 
-func (b *ByteBuffer) Length() uint32 {
+func (b *ByteBuffer) Length() int {
 	return b.len
 }
 
-func (b *ByteBuffer) Cap() uint32 {
+func (b *ByteBuffer) Cap() int {
 	return b.cap
 }
 
@@ -195,11 +195,11 @@ func (b *ByteBuffer) WBools(v []bool) {
 	}
 }
 
-func (b *ByteBuffer) tryGrow(c uint32) {
-	if c <= b.cap {
+func (b *ByteBuffer) tryGrow(c int) {
+	c, ok := NextCap(b.pos+c, b.cap, 2048)
+	if !ok {
 		return
 	}
-	c = NextPowerOfTwo(c)
 	b.cap = c
 	bytes := SpawnBytesWithLen(c)
 	copy(bytes, b.bytes[:b.pos])
@@ -208,14 +208,14 @@ func (b *ByteBuffer) tryGrow(c uint32) {
 }
 
 func (b *ByteBuffer) Write(v []byte) (int, error) {
-	l := uint32(len(v))
+	l := len(v)
 	if v == nil || l == 0 {
 		return 0, nil
 	}
 	return b.write(l, v)
 }
 
-func (b *ByteBuffer) write(l uint32, v []byte) (int, error) {
+func (b *ByteBuffer) write(l int, v []byte) (int, error) {
 	c := b.pos + l
 	b.tryGrow(c)
 	l = b.pos
@@ -381,7 +381,7 @@ func (b *ByteBuffer) WVec3s(v []Vec3) {
 }
 
 func (b *ByteBuffer) WShortString(v string) {
-	l := uint32(len(v))
+	l := len(v)
 	b.WUint8(uint8(l))
 	if l == 0 {
 		return
@@ -396,7 +396,7 @@ func (b *ByteBuffer) WShortString(v string) {
 }
 
 func (b *ByteBuffer) WString(v string) {
-	l := uint32(len(v))
+	l := len(v)
 	b.WUint16(uint16(l))
 	if l == 0 {
 		return
@@ -433,7 +433,7 @@ func (b *ByteBuffer) WJson(o any) *Err {
 	return nil
 }
 
-func (b *ByteBuffer) errLen(l uint32) *Err {
+func (b *ByteBuffer) errLen(l int) *Err {
 	return NewErr(EcOutOfRange, M{
 		"available": b.len - b.pos,
 		"need":      l,
@@ -470,10 +470,11 @@ func (b *ByteBuffer) RBools() (v []bool, err *Err) {
 }
 
 func (b *ByteBuffer) RBytes() ([]byte, *Err) {
-	l, err := b.RUint32()
+	c, err := b.RUint32()
 	if err != nil {
 		return nil, err
 	}
+	l := int(c)
 	if b.Available() < l {
 		return nil, b.errLen(l)
 	}
@@ -886,7 +887,7 @@ func (b *ByteBuffer) RShortString() (v string, err *Err) {
 	if length == 0 {
 		return
 	}
-	l := uint32(length)
+	l := int(length)
 	if b.Available() < l {
 		err = b.errLen(l)
 		return
@@ -905,7 +906,7 @@ func (b *ByteBuffer) RString() (v string, err *Err) {
 	if length == 0 {
 		return
 	}
-	l := uint32(length)
+	l := int(length)
 	if b.Available() < l {
 		err = b.errLen(l)
 		return

@@ -6,27 +6,34 @@ import (
 
 type (
 	ringOption[T any] struct {
-		maxCap      uint32
-		minCap      uint32
-		shrinkCount uint32
-		resize      func(uint32)
+		maxCap      int
+		minCap      int
+		shrinkCount int
+		slow        int
+		resize      func(int)
 	}
 	RingOption[T any] func(o *ringOption[T])
 )
 
-func RingMaxCap[T any](c uint32) RingOption[T] {
+func RingMaxCap[T any](c int) RingOption[T] {
 	return func(o *ringOption[T]) {
 		o.maxCap = c
 	}
 }
 
-func RingMinCap[T any](c uint32) RingOption[T] {
+func RingMinCap[T any](c int) RingOption[T] {
 	return func(o *ringOption[T]) {
 		o.minCap = c
 	}
 }
 
-func RingResize[T any](r func(uint32)) RingOption[T] {
+func RingResize[T any](r func(int)) RingOption[T] {
+	return func(o *ringOption[T]) {
+		o.resize = r
+	}
+}
+
+func RingSlow[T any](r func(int)) RingOption[T] {
 	return func(o *ringOption[T]) {
 		o.resize = r
 	}
@@ -37,6 +44,7 @@ func NewRing[T any](opts ...RingOption[T]) *Ring[T] {
 		maxCap:      0,
 		minCap:      32,
 		shrinkCount: 64,
+		slow:        1024,
 	}
 	for _, o := range opts {
 		o(opt)
@@ -55,28 +63,30 @@ func NewRing[T any](opts ...RingOption[T]) *Ring[T] {
 type Ring[T any] struct {
 	opt         *ringOption[T]
 	defVal      T
-	available   uint32
-	readIdx     uint32
-	writeIdx    uint32
+	available   int
+	readIdx     int
+	writeIdx    int
 	buffer      []T
-	bufferCap   uint32
-	halfBuffCap uint32
-	shrink      uint32
+	bufferCap   int
+	halfBuffCap int
+	shrink      int
 }
 
-func (r *Ring[T]) Available() uint32 {
+func (r *Ring[T]) Available() int {
 	return r.available
 }
 
-func (r *Ring[T]) testCap(c uint32) *util.Err {
+func (r *Ring[T]) testCap(c int) *util.Err {
 	if c > r.bufferCap {
-		c := util.NextPowerOfTwo(c)
-		if r.opt.maxCap > 0 && c >= r.opt.maxCap {
-			return util.NewErr(util.EcTooLong, util.M{
-				"total": c,
-			})
+		c, ok := util.NextCap(c, r.bufferCap, r.opt.slow)
+		if ok {
+			if r.opt.maxCap > 0 && c >= r.opt.maxCap {
+				return util.NewErr(util.EcTooLong, util.M{
+					"total": c,
+				})
+			}
+			r.resetBuffer(c)
 		}
-		r.resetBuffer(c)
 		return nil
 	}
 	if r.opt.minCap == r.bufferCap {
@@ -94,7 +104,7 @@ func (r *Ring[T]) testCap(c uint32) *util.Err {
 	return nil
 }
 
-func (r *Ring[T]) resetBuffer(cap uint32) {
+func (r *Ring[T]) resetBuffer(cap int) {
 	buf := make([]T, cap)
 	if r.available > 0 {
 		if r.writeIdx > r.readIdx {
@@ -116,7 +126,7 @@ func (r *Ring[T]) resetBuffer(cap uint32) {
 }
 
 func (r *Ring[T]) Put(items ...T) *util.Err {
-	l := uint32(len(items))
+	l := len(items)
 	c := r.available + l
 	err := r.testCap(c)
 	if err != nil {
@@ -151,8 +161,8 @@ func (r *Ring[T]) Pop() (item T, err *util.Err) {
 	return
 }
 
-func (r *Ring[T]) Read(s []T, l uint32) *util.Err {
-	sl := uint32(len(s))
+func (r *Ring[T]) Read(s []T, l int) *util.Err {
+	sl := len(s)
 	if l > sl || l > r.available {
 		return util.NewErr(util.EcNotEnough, util.M{
 			"length":    l,
@@ -164,7 +174,7 @@ func (r *Ring[T]) Read(s []T, l uint32) *util.Err {
 	return nil
 }
 
-func (r *Ring[T]) read(s []T, l uint32) {
+func (r *Ring[T]) read(s []T, l int) {
 	p := r.readIdx + l
 	if p < r.bufferCap {
 		copy(s, r.buffer[r.readIdx:p])
@@ -178,8 +188,8 @@ func (r *Ring[T]) read(s []T, l uint32) {
 	r.available -= l
 }
 
-func (r *Ring[T]) ReadMax(s []T) uint32 {
-	l := util.MinUint32(uint32(len(s)), r.available)
+func (r *Ring[T]) ReadMax(s []T) int {
+	l := util.MaxInt(len(s), r.available)
 	r.read(s, l)
 	return l
 }
@@ -194,7 +204,7 @@ func (r *Ring[T]) IterAll(fn func(T)) {
 	for ; r.readIdx < r.bufferCap; r.readIdx++ {
 		fn(r.buffer[r.readIdx])
 	}
-	for r.readIdx = uint32(0); r.readIdx < r.writeIdx; r.readIdx++ {
+	for r.readIdx = 0; r.readIdx < r.writeIdx; r.readIdx++ {
 		fn(r.buffer[r.readIdx])
 	}
 }

@@ -72,25 +72,25 @@ const (
 // AgentOpt Agent代理选项
 type (
 	AgentOpt struct {
-		PacketMaxCap uint32     //最大包长
-		PacketMinCap uint32     //包长最小容量
+		PacketMaxCap int        //最大包长
+		PacketMinCap int        //包长最小容量
 		OnErr        util.FnErr //处理错误
 		DeadlineSecs int
 		AgentMode    AgentRWMode
-		HeadLen      uint32
+		HeadLen      int
 	}
 	AgentOption func(o *AgentOpt)
 )
 
 // AgentPacketMaxCap 最大包长
-func AgentPacketMaxCap(packetMaxCap uint32) AgentOption {
+func AgentPacketMaxCap(packetMaxCap int) AgentOption {
 	return func(o *AgentOpt) {
 		o.PacketMaxCap = packetMaxCap
 	}
 }
 
 // AgentPacketMinCap 包长最小容量
-func AgentPacketMinCap(packetMinCap uint32) AgentOption {
+func AgentPacketMinCap(packetMinCap int) AgentOption {
 	return func(o *AgentOpt) {
 		o.PacketMinCap = packetMinCap
 	}
@@ -115,7 +115,7 @@ func AgentMode(mode AgentRWMode) AgentOption {
 	}
 }
 
-func AgentHeadLen(length uint32) AgentOption {
+func AgentHeadLen(length int) AgentOption {
 	return func(o *AgentOpt) {
 		o.HeadLen = length
 	}

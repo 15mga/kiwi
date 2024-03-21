@@ -84,6 +84,13 @@ func MaxInt64(a, b int64) int64 {
 	return a
 }
 
+func MinInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 func MinInt32(a, b int32) int32 {
 	if a < b {
 		return a
@@ -147,7 +154,7 @@ func Sqrt(v float32) float32 {
 	return float32(math.Sqrt(float64(v)))
 }
 
-func NextPowerOfTwo(v uint32) uint32 {
+func NextPowerOfTwo(v int) int {
 	v -= 1
 	v |= v >> 16
 	v |= v >> 8
@@ -155,6 +162,19 @@ func NextPowerOfTwo(v uint32) uint32 {
 	v |= v >> 2
 	v |= v >> 1
 	return v + 1
+}
+
+func NextCap(required, current, slow int) (int, bool) {
+	if required <= current {
+		return current, false
+	}
+	if current < slow {
+		return NextPowerOfTwo(required), true
+	}
+	for current < required {
+		current = current << 1
+	}
+	return current, true
 }
 
 func Lerp(from, to, t float32) float32 {

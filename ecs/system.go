@@ -107,7 +107,7 @@ func (s *System) DoJob(name JobName) {
 	slc := d.slc.Values()
 	if len(slc) > 0 {
 		d.worker.Do(slc)
-		d.slc.Clear()
+		d.slc.Reset()
 	}
 }
 
@@ -186,12 +186,12 @@ func (s *System) PEntitiesWithParams(fn func(*Entity, []any), params ...any) []*
 	return entities
 }
 
-func PTagComponentsTo[T any](s *System, tag string, fn func(IComponent) T, complete func([]T)) ([]IComponent, bool) {
+func PTagComponentsTo[T comparable](s *System, tag string, fn func(IComponent) (T, bool), complete func([]T)) ([]IComponent, bool) {
 	components, ok := s.Scene().GetTagComponents(tag)
 	if !ok {
 		return nil, false
 	}
-	worker.PTo[IComponent, T](components, fn, complete)
+	worker.PFilter[IComponent, T](components, fn, complete)
 	return components, true
 }
 

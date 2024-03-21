@@ -19,15 +19,15 @@ func NewTcpAgent(addr string, receiver kiwi.FnAgentBytes, options ...kiwi.AgentO
 	}
 	switch ta.option.HeadLen {
 	case 2:
-		ta.headReader = func(bytes []byte) uint32 {
-			return uint32(bytes[0])<<8 | uint32(bytes[1])
+		ta.headReader = func(bytes []byte) int {
+			return int(bytes[0])<<8 | int(bytes[1])
 		}
 		ta.headWriter = func(buffer *util.ByteBuffer, bytes []byte) {
 			buffer.WUint16(uint16(len(bytes)))
 		}
 	case 4:
-		ta.headReader = func(bytes []byte) uint32 {
-			return uint32(bytes[0])<<24 | uint32(bytes[1])<<16 | uint32(bytes[2])<<8 | uint32(bytes[3])
+		ta.headReader = func(bytes []byte) int {
+			return int(bytes[0])<<24 | int(bytes[1])<<16 | int(bytes[2])<<8 | int(bytes[3])
 		}
 		ta.headWriter = func(buffer *util.ByteBuffer, bytes []byte) {
 			buffer.WUint32(uint32(len(bytes)))
@@ -41,7 +41,7 @@ func NewTcpAgent(addr string, receiver kiwi.FnAgentBytes, options ...kiwi.AgentO
 type tcpAgent struct {
 	agent
 	conn       net.Conn
-	headReader util.BytesToUint32
+	headReader util.BytesToInt
 	headWriter func(buffer *util.ByteBuffer, bytes []byte)
 }
 
@@ -64,7 +64,7 @@ func (a *tcpAgent) read() {
 	var (
 		buffer     = make([]byte, a.option.PacketMinCap)
 		ringBuffer = newRing(a.option.PacketMinCap, a.option.PacketMaxCap)
-		pkgLen     uint32
+		pkgLen     int
 		err        *util.Err
 		headLen    = a.option.HeadLen
 		headReader = a.headReader
@@ -161,7 +161,7 @@ func (a *tcpAgent) write() {
 				//	"hex": util.Hex(bytes),
 				//})
 				var buffer util.ByteBuffer
-				buffer.InitCap(uint32(len(bytes)) + a.option.HeadLen)
+				buffer.InitCap(len(bytes) + a.option.HeadLen)
 				headWriter(&buffer, bytes)
 				_, _ = buffer.Write(bytes)
 				_, e := a.conn.Write(buffer.All())
@@ -176,7 +176,7 @@ func (a *tcpAgent) write() {
 	}
 }
 
-func newRing(minCap, maxCap uint32) *ring {
+func newRing(minCap, maxCap int) *ring {
 	r := &ring{
 		buffer:      make([]byte, minCap),
 		bufferCap:   minCap,
@@ -192,31 +192,33 @@ func newRing(minCap, maxCap uint32) *ring {
 
 type ring struct {
 	defVal      byte
-	available   uint32
-	readIdx     uint32
-	writeIdx    uint32
+	available   int
+	readIdx     int
+	writeIdx    int
 	buffer      []byte
-	bufferCap   uint32
-	minCap      uint32
-	maxCap      uint32
-	halfBuffCap uint32
-	shrink      uint32
-	shrinkCount uint32
+	bufferCap   int
+	minCap      int
+	maxCap      int
+	halfBuffCap int
+	shrink      int
+	shrinkCount int
 }
 
-func (r *ring) Available() uint32 {
+func (r *ring) Available() int {
 	return r.available
 }
 
-func (r *ring) testCap(c uint32) *util.Err {
+func (r *ring) testCap(c int) *util.Err {
 	if c > r.bufferCap {
-		c := util.NextPowerOfTwo(c)
-		if r.maxCap > 0 && c >= r.maxCap {
-			return util.NewErr(util.EcTooLong, util.M{
-				"total": c,
-			})
+		c, ok := util.NextCap(c, r.bufferCap, 2048)
+		if ok {
+			if r.maxCap > 0 && c >= r.maxCap {
+				return util.NewErr(util.EcTooLong, util.M{
+					"total": c,
+				})
+			}
+			r.resetBuffer(c)
 		}
-		r.resetBuffer(c)
 		return nil
 	}
 	if r.minCap == r.bufferCap {
@@ -234,7 +236,7 @@ func (r *ring) testCap(c uint32) *util.Err {
 	return nil
 }
 
-func (r *ring) resetBuffer(cap uint32) {
+func (r *ring) resetBuffer(cap int) {
 	buf := make([]byte, cap)
 	if r.available > 0 {
 		if r.writeIdx > r.readIdx {
@@ -254,7 +256,7 @@ func (r *ring) resetBuffer(cap uint32) {
 }
 
 func (r *ring) Put(items []byte) *util.Err {
-	l := uint32(len(items))
+	l := len(items)
 	c := r.available + l
 	err := r.testCap(c)
 	if err != nil {
@@ -274,8 +276,8 @@ func (r *ring) Put(items []byte) *util.Err {
 	return nil
 }
 
-func (r *ring) Read(s []byte, l uint32) *util.Err {
-	sl := uint32(len(s))
+func (r *ring) Read(s []byte, l int) *util.Err {
+	sl := len(s)
 	if l > sl || l > r.available {
 		return util.NewErr(util.EcNotEnough, util.M{
 			"length":    l,
@@ -287,7 +289,7 @@ func (r *ring) Read(s []byte, l uint32) *util.Err {
 	return nil
 }
 
-func (r *ring) read(s []byte, l uint32) {
+func (r *ring) read(s []byte, l int) {
 	p := r.readIdx + l
 	if p < r.bufferCap {
 		copy(s, r.buffer[r.readIdx:p])

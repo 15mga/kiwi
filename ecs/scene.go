@@ -20,8 +20,6 @@ func NewScene(id string, typ TScene) *Scene {
 		onAfterAddEntityLink:      ds.NewFnLink1[*Entity](),
 		onBeforeDisposeEntityLink: ds.NewFnErrLink1[*Entity](),
 		onAfterDisposeEntityLink:  ds.NewFnLink1[*Entity](),
-		onAddEntityComponentLink:  ds.NewFnLink2[*Entity, IComponent](),
-		onDelEntityComponentLink:  ds.NewFnLink2[*Entity, TComponent](),
 	}
 }
 
@@ -36,8 +34,6 @@ type Scene struct {
 	onAfterAddEntityLink      *ds.FnLink1[*Entity]
 	onBeforeDisposeEntityLink *ds.FnErrLink1[*Entity]
 	onAfterDisposeEntityLink  *ds.FnLink1[*Entity]
-	onAddEntityComponentLink  *ds.FnLink2[*Entity, IComponent]
-	onDelEntityComponentLink  *ds.FnLink2[*Entity, TComponent]
 }
 
 func (s *Scene) Id() string {
@@ -152,14 +148,33 @@ func (s *Scene) TagComponent(component IComponent, tags ...string) {
 			continue
 		}
 		a[tag] = struct{}{}
-		ca, ok := s.tagToComponents.Get(tag)
+		set, ok := s.tagToComponents.Get(tag)
 		if !ok {
-			ca = ds.NewSetItem[string, IComponent](32, tag, func(component IComponent) string {
+			set = ds.NewSetItem[string, IComponent](32, tag, func(component IComponent) string {
 				return component.Entity().Id()
 			})
-			_ = s.tagToComponents.AddNX(ca)
+			_ = s.tagToComponents.AddNX(set)
 		}
-		_ = ca.AddNX(component)
+		_ = set.AddNX(component)
+	}
+}
+
+func (s *Scene) TagComponents(tag string, components []IComponent) {
+	set, ok := s.tagToComponents.Get(tag)
+	if !ok {
+		set = ds.NewSetItem[string, IComponent](32, tag, func(component IComponent) string {
+			return component.Entity().Id()
+		})
+		_ = s.tagToComponents.AddNX(set)
+	}
+	set.AddRange(components)
+	for _, component := range components {
+		a, ok := s.componentTags[component]
+		if !ok {
+			a = make(map[string]struct{}, 4)
+			s.componentTags[component] = a
+		}
+		a[tag] = struct{}{}
 	}
 }
 
@@ -181,15 +196,36 @@ func (s *Scene) UntagComponent(component IComponent, tags ...string) {
 		return
 	}
 	for _, tag := range tags {
+		delete(ca, tag)
 		a, ok := s.tagToComponents.Get(tag)
 		if !ok {
 			continue
 		}
-		delete(ca, tag)
 		a.Del(component.Entity().Id())
 		if a.Count() == 0 {
 			s.tagToComponents.Del(tag)
 		}
+	}
+	if len(ca) == 0 {
+		delete(s.componentTags, component)
+	}
+}
+
+func (s *Scene) UntagComponents(tag string, components []IComponent) {
+	set, ok := s.tagToComponents.Get(tag)
+	if !ok {
+		return
+	}
+	for _, component := range components {
+		set.Del(component.Entity().Id())
+		ca, _ := s.componentTags[component]
+		delete(ca, tag)
+		if len(ca) == 0 {
+			delete(s.componentTags, component)
+		}
+	}
+	if set.Count() == 0 {
+		s.tagToComponents.Del(tag)
 	}
 }
 
@@ -201,7 +237,7 @@ func (s *Scene) GetTagComponents(tag string) ([]IComponent, bool) {
 	return a.Values(), true
 }
 
-func (s *Scene) TestGetTagComponents(tag string) (*ds.SetItem[string, IComponent], bool) {
+func (s *Scene) GetTagComponentsSet(tag string) (*ds.SetItem[string, IComponent], bool) {
 	a, ok := s.tagToComponents.Get(tag)
 	if !ok {
 		return nil, false
@@ -214,6 +250,7 @@ func (s *Scene) ClearComponentTags(component IComponent) {
 	if !ok {
 		return
 	}
+	delete(s.componentTags, component)
 	for tag := range a {
 		set, ok := s.tagToComponents.Get(tag)
 		if !ok {
@@ -233,6 +270,9 @@ func (s *Scene) ClearTag(tag string) bool {
 	}
 	for _, c := range a.Values() {
 		delete(s.componentTags[c], tag)
+		if len(s.componentTags[c]) == 0 {
+			delete(s.componentTags, c)
+		}
 	}
 	return true
 }
@@ -245,6 +285,9 @@ func (s *Scene) ClearTags(tags ...string) {
 		}
 		for _, c := range a.Values() {
 			delete(s.componentTags[c], tag)
+			if len(s.componentTags[c]) == 0 {
+				delete(s.componentTags, c)
+			}
 		}
 	}
 }
@@ -277,22 +320,6 @@ func (s *Scene) BindBeforeDisposeEntity(fn EntityToErr) {
 
 func (s *Scene) BindAfterDisposeEntity(fn FnEntity) {
 	s.onAfterDisposeEntityLink.Push(fn)
-}
-
-func (s *Scene) BindAddComponent(fn FnEntityCom) {
-	s.onAddEntityComponentLink.Push(fn)
-}
-
-func (s *Scene) BindDelComponent(fn FnEntityTCom) {
-	s.onDelEntityComponentLink.Push(fn)
-}
-
-func (s *Scene) onAddComponent(e *Entity, c IComponent) {
-	s.onAddEntityComponentLink.Invoke(e, c)
-}
-
-func (s *Scene) onDelComponent(e *Entity, t TComponent) {
-	s.onDelEntityComponentLink.Invoke(e, t)
 }
 
 func (s *Scene) Dispose() {

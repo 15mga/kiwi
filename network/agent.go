@@ -13,8 +13,8 @@ import (
 )
 
 const (
-	_PacketMaxCap uint32 = math.MaxUint32
-	_PacketMinCap uint32 = 1 << 11
+	_PacketMaxCap int = math.MaxUint32
+	_PacketMinCap int = 1 << 11
 )
 
 func newAgent(addr string, receiver kiwi.FnAgentBytes, opts ...kiwi.AgentOption) agent {
@@ -182,7 +182,7 @@ func (a *agent) Send(bytes []byte) *util.Err {
 	if bytes == nil {
 		return util.NewErr(util.EcEmpty, nil)
 	}
-	l := uint32(len(bytes))
+	l := len(bytes)
 	if l == 0 {
 		return util.NewErr(util.EcEmpty, nil)
 	}
