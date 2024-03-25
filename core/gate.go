@@ -25,6 +25,7 @@ type (
 		ip           string
 		tcp          int
 		web          int
+		webOpts      []network.WebOption
 		udp          int
 		connCap      int32
 		connected    kiwi.FnAgent
@@ -51,6 +52,12 @@ func GateTcpPort(port int) GateOption {
 func GateWebsocketPort(port int) GateOption {
 	return func(option *gateOption) {
 		option.web = port
+	}
+}
+
+func GateWebsocketOptions(opts ...network.WebOption) GateOption {
+	return func(option *gateOption) {
+		option.webOpts = opts
 	}
 }
 
@@ -165,7 +172,7 @@ func InitGate(receiver kiwi.FnAgentBytes, opts ...GateOption) {
 	}
 	if g.option.web > 0 {
 		addr := fmt.Sprintf("%s:%d", g.option.ip, g.option.web)
-		listener := network.NewWebListener(g.onAddWebConn, network.WebAddr(addr))
+		listener := network.NewWebListener(g.onAddWebConn, append(g.option.webOpts, network.WebAddr(addr))...)
 		err := listener.Start()
 		if err != nil {
 			kiwi.Fatal(err)

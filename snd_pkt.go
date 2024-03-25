@@ -23,6 +23,7 @@ type ISndRequest interface {
 	OkBytes(head util.M, bytes []byte)
 	Ok(head util.M, msg util.IMsg)
 	Fail(head util.M, code uint16)
+	Error(err *util.Err)
 }
 
 type ISndPush interface {

@@ -37,7 +37,11 @@ type fnShare struct {
 }
 
 func (s *fnShare) Push(key string, fn util.FnAnySlc, params ...any) {
-	s.workers[FnvStr(key)&s.mask].Push(fn, params...)
+	s.workers[FnvHashStr(key)&s.mask].Push(fn, params...)
+}
+
+func (s *fnShare) PushInt64(key int64, fn util.FnAnySlc, params ...any) {
+	s.workers[FnvHashInt64(key)&s.mask].Push(fn, params...)
 }
 
 func (s *fnShare) Dispose() {
@@ -46,13 +50,13 @@ func (s *fnShare) Dispose() {
 	}
 }
 
-var (
+const (
 	offset64 int64 = -3750763034362895579
 	prime64  int64 = 1099511628211
 )
 
-func FnvStr(key string) int64 {
-	bytes := util.StrToBytes(key)
+func FnvHashStr(str string) int64 {
+	bytes := util.StrToBytes(str)
 	var hash = offset64
 	for i := 0; i < len(bytes); i++ {
 		hash ^= int64(bytes[i])
@@ -63,19 +67,19 @@ func FnvStr(key string) int64 {
 
 func FnvBytes(bytes []byte) int64 {
 	var hash = offset64
-	for i := 0; i < len(bytes); i++ {
-		hash ^= int64(bytes[i])
+	for _, c := range bytes {
+		hash ^= int64(c)
 		hash *= prime64
 	}
 	return hash
 }
 
-func FnvInt64(v int64) int64 {
+func FnvHashInt64(v int64) int64 {
 	var hash = offset64
 	bytes := util.Int64ToBytes(v)
 	for i := 0; i < len(bytes); i++ {
-		hash ^= int64(bytes[i])
 		hash *= prime64
+		hash ^= int64(bytes[i])
 	}
 	return hash
 }
@@ -89,12 +93,12 @@ type stringStruct struct {
 	len int
 }
 
-func MemHash(data []byte) int64 {
+func MemHashBytes(data []byte) int64 {
 	ss := (*stringStruct)(unsafe.Pointer(&data))
 	return int64(memhash(ss.str, 0, uintptr(ss.len)))
 }
 
-func MemHashString(str string) int64 {
+func MemHashStr(str string) int64 {
 	ss := (*stringStruct)(unsafe.Pointer(&str))
 	return int64(memhash(ss.str, 0, uintptr(ss.len)))
 }

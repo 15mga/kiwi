@@ -8,15 +8,29 @@ import (
 	"github.com/15mga/kiwi/util"
 )
 
-func NewWorker[T any](fn func(T)) *Worker[T] {
-	b := &Worker[T]{
-		ch: make(chan struct{}, 1),
-		fn: fn,
-		pool: sync.Pool{
-			New: func() any {
-				return &job[T]{}
-			},
+var (
+	_JobPool = sync.Pool{
+		New: func() any {
+			return &Job{}
 		},
+	}
+	_JobWorkerPool = &sync.Pool{
+		New: func() any {
+			return &job[*Job]{}
+		},
+	}
+	_FnWorkerPool = &sync.Pool{
+		New: func() any {
+			return &job[FnJobData]{}
+		},
+	}
+)
+
+func NewWorker[T any](fn func(T), pool *sync.Pool) *Worker[T] {
+	b := &Worker[T]{
+		ch:   make(chan struct{}, 1),
+		fn:   fn,
+		pool: pool,
 	}
 	return b
 }
@@ -28,38 +42,40 @@ type Worker[T any] struct {
 	tail *job[T]
 	curr *job[T]
 	fn   func(T)
-	pool sync.Pool
+	pool *sync.Pool
 }
 
 func (w *Worker[T]) Start() {
-	go func() {
-		defer func() {
-			if err := recover(); err != nil {
-				//fmt.Printf("\033[31m!!!recover!!!\u001B[0m\n%s%s\n", err, util.GetStack(5))
-				kiwi.Error2(util.EcServiceErr, util.M{
-					"error": fmt.Sprint(err),
-				})
-				w.Start()
-			}
-		}()
+	go w.start()
+}
 
-		w.do()
-
-		for range w.ch {
-			for {
-				w.mtx.Lock()
-				w.curr = w.head
-				w.head = nil
-				w.tail = nil
-				w.mtx.Unlock()
-
-				if w.curr == nil {
-					break
-				}
-				w.do()
-			}
+func (w *Worker[T]) start() {
+	defer func() {
+		if err := recover(); err != nil {
+			//fmt.Printf("\033[31m!!!recover!!!\u001B[0m\n%s%s\n", err, util.GetStack(5))
+			kiwi.Error2(util.EcServiceErr, util.M{
+				"error": fmt.Sprint(err),
+			})
+			w.Start()
 		}
 	}()
+
+	w.do()
+
+	for range w.ch {
+		for {
+			w.mtx.Lock()
+			w.curr = w.head
+			w.head = nil
+			w.tail = nil
+			w.mtx.Unlock()
+
+			if w.curr == nil {
+				break
+			}
+			w.do()
+		}
+	}
 }
 
 func (w *Worker[T]) Dispose() {
@@ -113,7 +129,7 @@ func NewJobWorker(fn FnJob) *JobWorker {
 	w := &JobWorker{
 		pcr: fn,
 	}
-	w.Worker = NewWorker[*Job](w.process)
+	w.Worker = NewWorker[*Job](w.process, _JobWorkerPool)
 	return w
 }
 
@@ -142,14 +158,6 @@ type Job struct {
 	Data []any
 }
 
-var (
-	_JobPool = sync.Pool{
-		New: func() any {
-			return &Job{}
-		},
-	}
-)
-
 func SpawnJob() *Job {
 	return _JobPool.Get().(*Job)
 }
@@ -171,7 +179,7 @@ func NewFnWorker() *FnWorker {
 	return &FnWorker{
 		Worker: NewWorker[FnJobData](func(data FnJobData) {
 			data.Fn(data.Params)
-		}),
+		}, _FnWorkerPool),
 	}
 }
 

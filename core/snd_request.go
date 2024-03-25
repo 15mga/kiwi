@@ -51,8 +51,7 @@ func (r *SRequest) OkBytes(head util.M, bytes []byte) {
 		}
 		code, err := kiwi.Codec().ReqToResCode(r.svc, r.code)
 		if err != nil {
-			kiwi.TE(r.tid, err)
-			r.fail(r.tid, head, err.Code())
+			r.Error(err)
 			return
 		}
 		var msg util.IMsg
@@ -62,8 +61,7 @@ func (r *SRequest) OkBytes(head util.M, bytes []byte) {
 			msg, err = kiwi.Codec().PbUnmarshal2(r.svc, code, bytes)
 		}
 		if err != nil {
-			kiwi.TE(r.tid, err)
-			r.fail(r.tid, head, err.Code())
+			r.Error(err)
 			return
 		}
 		r.okMsg(r.tid, head, msg)
@@ -79,8 +77,7 @@ func (r *SRequest) Ok(head util.M, msg util.IMsg) {
 	if r.isBytes {
 		bytes, err := kiwi.Codec().PbMarshal(msg)
 		if err != nil {
-			kiwi.TE(r.tid, err)
-			r.fail(r.tid, head, err.Code())
+			r.Error(err)
 			return
 		}
 		r.okBytes(r.tid, head, bytes)
@@ -95,6 +92,15 @@ func (r *SRequest) Fail(head util.M, code uint16) {
 	}
 	defer r.Dispose()
 	r.fail(r.tid, head, code)
+}
+
+func (r *SRequest) Error(err *util.Err) {
+	if r.isDisposed() {
+		return
+	}
+	defer r.Dispose()
+	kiwi.TE(r.tid, err)
+	r.fail(r.tid, nil, err.Code())
 }
 
 func (r *SRequest) timeout() {
