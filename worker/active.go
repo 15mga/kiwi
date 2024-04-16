@@ -70,7 +70,7 @@ func InitActive(opts ...ActiveOption) {
 		}),
 		activeStopSeconds: opt.tickSecs << 1,
 	}
-	_Active.worker = NewJobWorker(_Active.process)
+	_Active.worker = NewWorker(2048, _Active.process)
 	go func() {
 		ticker := time.NewTicker(time.Duration(_Active.option.tickSecs) * time.Second)
 		defer func() {
@@ -91,7 +91,7 @@ func InitActive(opts ...ActiveOption) {
 
 type active struct {
 	option            *activeOption
-	worker            *JobWorker
+	worker            *Worker
 	closeCh           chan struct{}
 	activeWorkers     *ds.KSet[string, *activeWorker]
 	activeStopSeconds int64
@@ -103,13 +103,13 @@ func (a *active) Dispose() {
 	a.worker.Dispose()
 }
 
-func (a *active) Push(id string, fn util.FnAnySlc, params ...any) {
-	a.worker.Push(cmdActivePush, id, fn, params)
+func (a *active) Push(id string, fn util.FnAny, data any) {
+	a.worker.Push(activeJobPush{id, fn, data})
 }
 
-func (a *active) process(job *Job) {
-	switch job.Name {
-	case cmdActiveCheck:
+func (a *active) process(data any) {
+	switch d := data.(type) {
+	case activeJobCheck:
 		now := time.Now().Unix()
 		//移除不活跃的协程
 		a.activeTimeStamp.TestDel(func(id string, item *activeData) (del bool, brk bool) {
@@ -121,33 +121,32 @@ func (a *active) process(job *Job) {
 			del = true
 			return
 		})
-	case cmdActiveDispose:
+	case activeJobDispose:
 		a.activeWorkers.Iter(func(item *activeWorker) {
 			item.Dispose()
 		})
-	case cmdActivePush:
-		id, fn, params := util.SplitSlc3[string, util.FnAnySlc, []any](job.Data)
-		worker, ok := a.activeWorkers.Get(id)
+	case activeJobPush:
+		worker, ok := a.activeWorkers.Get(d.id)
 		now := time.Now().Unix()
 		if ok {
-			d, _ := a.activeTimeStamp.Get(id)
+			d, _ := a.activeTimeStamp.Get(d.id)
 			d.ts = now
 		} else {
-			worker = newActiveWorker(id)
+			worker = newActiveWorker(d.id)
 			worker.Start()
 			a.activeWorkers.Set(worker)
 			_ = a.activeTimeStamp.Add(&activeData{
 				ts: now,
-				id: id,
+				id: d.id,
 			})
 		}
-		worker.Push(fn, params...)
+		worker.Push(d.fn, d.data)
 	}
 }
 
 func newActiveWorker(id string) *activeWorker {
 	a := &activeWorker{
-		FnWorker: NewFnWorker(),
+		FnWorker: NewFnWorker(8),
 		id:       id,
 	}
 	return a
@@ -156,4 +155,16 @@ func newActiveWorker(id string) *activeWorker {
 type activeWorker struct {
 	*FnWorker
 	id string
+}
+
+type activeJobCheck struct {
+}
+
+type activeJobDispose struct {
+}
+
+type activeJobPush struct {
+	id   string
+	fn   util.FnAny
+	data any
 }

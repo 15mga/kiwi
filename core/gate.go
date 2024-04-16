@@ -138,7 +138,7 @@ func InitGate(receiver kiwi.FnAgentBytes, opts ...GateOption) {
 		msgToRoles: sync.Map{},
 	}
 	g.SetRoles(o.roles)
-	g.worker = worker.NewJobWorker(g.process)
+	g.worker = worker.NewWorker(4096, g.process)
 	g.worker.Start()
 	if o.ip == "" {
 		ip, err := util.GetLocalIp()
@@ -186,7 +186,7 @@ func InitGate(receiver kiwi.FnAgentBytes, opts ...GateOption) {
 type gate struct {
 	option      *gateOption
 	receiver    kiwi.FnAgentBytes
-	worker      *worker.JobWorker
+	worker      *worker.Worker
 	listeners   []kiwi.IListener
 	idToAgent   *ds.KSet[string, kiwi.IAgent]
 	addrToAgent *ds.KSet[string, kiwi.IAgent]
@@ -298,63 +298,63 @@ func (g *gate) onAddWebConn(conn *websocket.Conn) {
 }
 
 func (g *gate) onAgentConnected(agent kiwi.IAgent) {
-	g.worker.Push(gateConnected, agent)
+	g.worker.Push(gateJobConnected{agent})
 }
 
 func (g *gate) onAgentClosed(agent kiwi.IAgent, err *util.Err) {
-	g.worker.Push(gateDisconnected, agent, err)
+	g.worker.Push(gateJobDisconnected{agent, err})
 }
 
 func (g *gate) Send(tid int64, id string, bytes []byte, handler util.FnBool) {
-	g.worker.Push(gateSend, tid, id, bytes, handler)
+	g.worker.Push(gateJobSend{tid, id, bytes, handler})
 }
 
 func (g *gate) AddrSend(tid int64, addr string, bytes []byte, handler util.FnBool) {
-	g.worker.Push(gateAddrSend, tid, addr, bytes, handler)
+	g.worker.Push(gateJobAddrSend{tid, addr, bytes, handler})
 }
 
 func (g *gate) MultiSend(tid int64, idToPayload map[string][]byte, handler util.FnMapBool) {
-	g.worker.Push(gateMultiSend, tid, idToPayload, handler)
+	g.worker.Push(gateJobMultiSend{tid, idToPayload, handler})
 }
 
 func (g *gate) MultiAddrSend(tid int64, addrToPayload map[string][]byte, handler util.FnMapBool) {
-	g.worker.Push(gateMultiAddrSend, tid, addrToPayload, handler)
+	g.worker.Push(gateJobMultiAddrSend{tid, addrToPayload, handler})
 }
 
 func (g *gate) AllSend(tid int64, bytes []byte) {
-	g.worker.Push(gateAllSend, tid, bytes)
+	g.worker.Push(gateJobAllSend{tid, bytes})
 }
 
 func (g *gate) UpdateHeadCache(tid int64, id string, head, cache util.M, handler util.FnBool) {
-	g.worker.Push(gateUpdate, tid, id, head, cache, handler)
+	g.worker.Push(gateJobUpdate{tid, id, head, cache, handler})
 }
 
 func (g *gate) UpdateAddrHeadCache(tid int64, addr string, head, cache util.M, handler util.FnBool) {
-	g.worker.Push(gateUpdateAddr, tid, addr, head, cache, handler)
+	g.worker.Push(gateJobAddrUpdate{tid, addr, head, cache, handler})
 }
 
 func (g *gate) RemoveHeadCache(tid int64, addr string, head, cache []string, handler util.FnBool) {
-	g.worker.Push(gateRemove, tid, addr, head, cache, handler)
+	g.worker.Push(gateJobRemove{tid, addr, head, cache, handler})
 }
 
 func (g *gate) RemoveAddrHeadCache(tid int64, addr string, head, cache []string, handler util.FnBool) {
-	g.worker.Push(gateRemoveAddr, tid, addr, head, cache, handler)
+	g.worker.Push(gateJobAddrRemove{tid, addr, head, cache, handler})
 }
 
 func (g *gate) GetHeadCache(tid int64, id string, fn util.FnM2Bool) {
-	g.worker.Push(gateGet, tid, id, fn)
+	g.worker.Push(gateJobGet{tid, id, fn})
 }
 
 func (g *gate) GetAddrHeadCache(tid int64, id string, fn util.FnM2Bool) {
-	g.worker.Push(gateGetAddr, tid, id, fn)
+	g.worker.Push(gateJobAddrGet{tid, id, fn})
 }
 
 func (g *gate) CloseWithId(tid int64, id string, removeHeadKeys, removeCacheKeys []string) {
-	g.worker.Push(gateClose, tid, id, removeHeadKeys, removeCacheKeys)
+	g.worker.Push(gateJobClose{tid, id, removeHeadKeys, removeCacheKeys})
 }
 
 func (g *gate) CloseWithAddr(tid int64, addr string, removeHeadKeys, removeCacheKeys []string) {
-	g.worker.Push(gateAddrClose, tid, addr, removeHeadKeys, removeCacheKeys)
+	g.worker.Push(gateJobAddrClose{tid, addr, removeHeadKeys, removeCacheKeys})
 }
 
 func (g *gate) SetRoles(m map[kiwi.TSvcCode][]int64) {
@@ -376,10 +376,10 @@ func (g *gate) Authenticate(mask int64, svc kiwi.TSvc, code kiwi.TCode) bool {
 	return false
 }
 
-func (g *gate) process(job *worker.Job) {
-	switch job.Name {
-	case gateConnected:
-		agent := util.SplitSlc1[kiwi.IAgent](job.Data)
+func (g *gate) process(data any) {
+	switch d := data.(type) {
+	case gateJobConnected:
+		agent := d.agent
 		ok := g.idToAgent.AddNX(agent)
 		if !ok {
 			return
@@ -391,59 +391,55 @@ func (g *gate) process(job *worker.Job) {
 		})
 		atomic.AddInt32(&g.agentCount, 1)
 		g.option.connected(agent)
-	case gateDisconnected:
-		agent, err := util.SplitSlc2[kiwi.IAgent, *util.Err](job.Data)
-		agentAddr := agent.Addr()
+	case gateJobDisconnected:
+		agentAddr := d.agent.Addr()
 		agent, ok := g.addrToAgent.Del(agentAddr)
 		if !ok {
 			return
 		}
-		agentId := agent.Id()
+		agentId := d.agent.Id()
 		kiwi.Info("agent disconnected", util.M{
 			"id":   agentId,
 			"addr": agentAddr,
 		})
 		atomic.AddInt32(&g.agentCount, -1)
-		g.option.disconnected(agent, err)
+		g.option.disconnected(agent, d.err)
 		agent2, ok := g.idToAgent.Get(agentId)
 		if !ok || agent2.Addr() != agentAddr { //id被新agent替换
 			return
 		}
 		_, _ = g.idToAgent.Del(agentId)
-	case gateSend:
-		tid, id, bytes, fn := util.SplitSlc4[int64, string, []byte, util.FnBool](job.Data)
-		agent, ok := g.idToAgent.Get(id)
+	case gateJobSend:
+		agent, ok := g.idToAgent.Get(d.id)
 		if !ok {
-			fn(false)
+			d.fn(false)
 			return
 		}
-		err := agent.Send(bytes)
+		err := agent.Send(d.payload)
 		if err != nil {
-			err.AddParam("id", id)
-			kiwi.TE(tid, err)
-			fn(false)
+			err.AddParam("id", d.id)
+			kiwi.TE(d.tid, err)
+			d.fn(false)
 			return
 		}
-		fn(true)
-	case gateAddrSend:
-		tid, addr, bytes, fn := util.SplitSlc4[int64, string, []byte, util.FnBool](job.Data)
-		agent, ok := g.addrToAgent.Get(addr)
+		d.fn(true)
+	case gateJobAddrSend:
+		agent, ok := g.addrToAgent.Get(d.addr)
 		if !ok {
-			fn(false)
+			d.fn(false)
 			return
 		}
-		err := agent.Send(bytes)
+		err := agent.Send(d.payload)
 		if err != nil {
-			err.AddParam("addr", addr)
-			kiwi.TE(tid, err)
-			fn(false)
+			err.AddParam("addr", d.addr)
+			kiwi.TE(d.tid, err)
+			d.fn(false)
 			return
 		}
-		fn(true)
-	case gateMultiSend:
-		tid, idToPayload, fn := util.SplitSlc3[int64, map[string][]byte, util.FnMapBool](job.Data)
-		m := make(map[string]bool, len(idToPayload))
-		for id, payload := range idToPayload {
+		d.fn(true)
+	case gateJobMultiSend:
+		m := make(map[string]bool, len(d.idToPayload))
+		for id, payload := range d.idToPayload {
 			agent, ok := g.idToAgent.Get(id)
 			if !ok {
 				m[id] = false
@@ -451,17 +447,16 @@ func (g *gate) process(job *worker.Job) {
 			}
 			err := agent.Send(payload)
 			if err != nil {
-				kiwi.TE(tid, err)
+				kiwi.TE(d.tid, err)
 				m[id] = false
 				continue
 			}
 			m[id] = true
 		}
-		fn(m)
-	case gateMultiAddrSend:
-		tid, addrToPayload, fn := util.SplitSlc3[int64, map[string][]byte, util.FnMapBool](job.Data)
-		m := make(map[string]bool, len(addrToPayload))
-		for addr, payload := range addrToPayload {
+		d.fn(m)
+	case gateJobMultiAddrSend:
+		m := make(map[string]bool, len(d.addrToPayload))
+		for addr, payload := range d.addrToPayload {
 			agent, ok := g.addrToAgent.Get(addr)
 			if !ok {
 				m[addr] = false
@@ -469,165 +464,236 @@ func (g *gate) process(job *worker.Job) {
 			}
 			err := agent.Send(payload)
 			if err != nil {
-				kiwi.TE(tid, err)
+				kiwi.TE(d.tid, err)
 				m[addr] = false
 				continue
 			}
 			m[addr] = true
 		}
-		fn(m)
-	case gateAllSend:
-		tid, bytes := util.SplitSlc2[int64, []byte](job.Data)
+		d.fn(m)
+	case gateJobAllSend:
 		g.idToAgent.Iter(func(item kiwi.IAgent) {
-			err := item.Send(util.CopyBytes(bytes))
+			err := item.Send(util.CopyBytes(d.payload))
 			if err != nil {
-				kiwi.TE(tid, err)
+				kiwi.TE(d.tid, err)
 			}
 		})
-		util.RecycleBytes(bytes)
-	case gateUpdate:
-		tid, id, head, cache, fn := util.SplitSlc5[int64, string, util.M, util.M, util.FnBool](job.Data)
-		agent, ok := g.idToAgent.Get(id)
+		util.RecycleBytes(d.payload)
+	case gateJobUpdate:
+		agent, ok := g.idToAgent.Get(d.id)
 		if !ok {
-			fn(false)
+			d.fn(false)
 			return
 		}
-		if head != nil {
-			_, ok := head["addr"]
+		if d.head != nil {
+			_, ok := d.head["addr"]
 			if ok {
-				delete(head, "addr") //这个不能覆盖
+				delete(d.head, "addr") //这个不能覆盖
 			}
-			newId, ok := util.MGet[string](head, "id")
-			if ok {
-				oldId := agent.Id()
-				agent.SetId(newId)
-				g.idToAgent.ReplaceOrNew(oldId, agent)
-			}
-			agent.SetHeads(head)
-		}
-		if cache != nil {
-			agent.SetCaches(cache)
-		}
-		kiwi.TD(tid, "gate id update", util.M{
-			"head":  head,
-			"cache": cache,
-		})
-		fn(true)
-	case gateUpdateAddr:
-		tid, addr, head, cache, fn := util.SplitSlc5[int64, string, util.M, util.M, util.FnBool](job.Data)
-		agent, ok := g.addrToAgent.Get(addr)
-		if !ok {
-			fn(false)
-			return
-		}
-		if head != nil {
-			_, ok := head["addr"]
-			if ok {
-				delete(head, "addr") //这个不能覆盖
-			}
-			newId, ok := util.MGet[string](head, "id")
+			newId, ok := util.MGet[string](d.head, "id")
 			if ok {
 				oldId := agent.Id()
 				agent.SetId(newId)
 				g.idToAgent.ReplaceOrNew(oldId, agent)
 			}
-			agent.SetHeads(head)
+			agent.SetHeads(d.head)
 		}
-		if cache != nil {
-			agent.SetCaches(cache)
+		if d.cache != nil {
+			agent.SetCaches(d.cache)
 		}
-		kiwi.TD(tid, "gate addr update", util.M{
-			"head":  head,
-			"cache": cache,
+		kiwi.TD(d.tid, "gate id update", util.M{
+			"head":  d.head,
+			"cache": d.cache,
 		})
-		fn(true)
-	case gateRemove:
-		tid, id, head, cache, fn := util.SplitSlc5[int64, string, []string, []string, util.FnBool](job.Data)
-		agent, ok := g.idToAgent.Get(id)
+		d.fn(true)
+	case gateJobAddrUpdate:
+		agent, ok := g.addrToAgent.Get(d.addr)
 		if !ok {
-			fn(false)
+			d.fn(false)
 			return
 		}
-		agent.DelHead(head...)
-		agent.DelCache(cache...)
-		kiwi.TD(tid, "gate id remove", util.M{
-			"head":  head,
-			"cache": cache,
+		if d.head != nil {
+			_, ok := d.head["addr"]
+			if ok {
+				delete(d.head, "addr") //这个不能覆盖
+			}
+			newId, ok := util.MGet[string](d.head, "id")
+			if ok {
+				oldId := agent.Id()
+				agent.SetId(newId)
+				g.idToAgent.ReplaceOrNew(oldId, agent)
+			}
+			agent.SetHeads(d.head)
+		}
+		if d.cache != nil {
+			agent.SetCaches(d.cache)
+		}
+		kiwi.TD(d.tid, "gate addr update", util.M{
+			"head":  d.head,
+			"cache": d.cache,
 		})
-		fn(true)
-	case gateRemoveAddr:
-		tid, addr, head, cache, fn := util.SplitSlc5[int64, string, []string, []string, util.FnBool](job.Data)
-		agent, ok := g.addrToAgent.Get(addr)
+		d.fn(true)
+	case gateJobRemove:
+		agent, ok := g.idToAgent.Get(d.id)
 		if !ok {
-			fn(false)
+			d.fn(false)
 			return
 		}
-		agent.DelHead(head...)
-		agent.DelCache(cache...)
-		kiwi.TD(tid, "gate addr remove", util.M{
-			"head":  head,
-			"cache": cache,
+		agent.DelHead(d.head...)
+		agent.DelCache(d.cache...)
+		kiwi.TD(d.tid, "gate id remove", util.M{
+			"head":  d.head,
+			"cache": d.cache,
 		})
-		fn(true)
-	case gateGet:
-		_, id, fn := util.SplitSlc3[int64, string, util.FnM2Bool](job.Data)
-		agent, ok := g.idToAgent.Get(id)
+		d.fn(true)
+	case gateJobAddrRemove:
+		agent, ok := g.addrToAgent.Get(d.addr)
 		if !ok {
-			fn(nil, nil, false)
+			d.fn(false)
+			return
+		}
+		agent.DelHead(d.head...)
+		agent.DelCache(d.cache...)
+		kiwi.TD(d.tid, "gate addr remove", util.M{
+			"head":  d.head,
+			"cache": d.cache,
+		})
+		d.fn(true)
+	case gateJobGet:
+		agent, ok := g.idToAgent.Get(d.id)
+		if !ok {
+			d.fn(nil, nil, false)
 			return
 		}
 		head := util.M{}
 		cache := util.M{}
 		agent.CopyHead(head)
 		agent.CopyCache(cache)
-		fn(head, cache, true)
-	case gateGetAddr:
-		_, addr, fn := util.SplitSlc3[int64, string, util.FnM2Bool](job.Data)
-		agent, ok := g.addrToAgent.Get(addr)
+		d.fn(head, cache, true)
+	case gateJobAddrGet:
+		agent, ok := g.addrToAgent.Get(d.addr)
 		if !ok {
-			fn(nil, nil, false)
+			d.fn(nil, nil, false)
 			return
 		}
 		head := util.M{}
 		cache := util.M{}
 		agent.CopyHead(head)
 		agent.CopyCache(cache)
-		fn(head, cache, true)
-	case gateClose:
-		_, id, head, cache := util.SplitSlc4[int64, string, []string, []string](job.Data)
-		agent, ok := g.idToAgent.Get(id)
+		d.fn(head, cache, true)
+	case gateJobClose:
+		agent, ok := g.idToAgent.Get(d.id)
 		if !ok {
 			return
 		}
-		agent.DelHead(head...)
-		agent.DelCache(cache...)
+		agent.DelHead(d.head...)
+		agent.DelCache(d.cache...)
 		agent.Dispose()
-	case gateAddrClose:
-		_, addr, head, cache := util.SplitSlc4[int64, string, []string, []string](job.Data)
-		agent, ok := g.addrToAgent.Get(addr)
+	case gateJobAddrClose:
+		agent, ok := g.addrToAgent.Get(d.addr)
 		if !ok {
 			return
 		}
-		agent.DelHead(head...)
-		agent.DelCache(cache...)
+		agent.DelHead(d.head...)
+		agent.DelCache(d.cache...)
 		agent.Dispose()
 	}
 }
 
-const (
-	gateConnected     = "connected"
-	gateDisconnected  = "disconnected"
-	gateSend          = "send"
-	gateAddrSend      = "send_addr"
-	gateMultiSend     = "multi_send"
-	gateMultiAddrSend = "multi_send_addr"
-	gateAllSend       = "all_send"
-	gateUpdate        = "update_head_cache"
-	gateUpdateAddr    = "update_addr_head_cache"
-	gateRemove        = "remove_head_cache"
-	gateRemoveAddr    = "remove_addr_head_cache"
-	gateGet           = "get_head_cache"
-	gateGetAddr       = "get_addr_head_cache"
-	gateAddrClose     = "addr_close"
-	gateClose         = "close"
-)
+type gateJobConnected struct {
+	agent kiwi.IAgent
+}
+
+type gateJobDisconnected struct {
+	agent kiwi.IAgent
+	err   *util.Err
+}
+
+type gateJobSend struct {
+	tid     int64
+	id      string
+	payload []byte
+	fn      util.FnBool
+}
+
+type gateJobAddrSend struct {
+	tid     int64
+	addr    string
+	payload []byte
+	fn      util.FnBool
+}
+
+type gateJobMultiSend struct {
+	tid         int64
+	idToPayload map[string][]byte
+	fn          util.FnMapBool
+}
+
+type gateJobMultiAddrSend struct {
+	tid           int64
+	addrToPayload map[string][]byte
+	fn            util.FnMapBool
+}
+
+type gateJobAllSend struct {
+	tid     int64
+	payload []byte
+}
+
+type gateJobUpdate struct {
+	tid   int64
+	id    string
+	head  util.M
+	cache util.M
+	fn    util.FnBool
+}
+
+type gateJobAddrUpdate struct {
+	tid   int64
+	addr  string
+	head  util.M
+	cache util.M
+	fn    util.FnBool
+}
+
+type gateJobRemove struct {
+	tid   int64
+	id    string
+	head  []string
+	cache []string
+	fn    util.FnBool
+}
+
+type gateJobAddrRemove struct {
+	tid   int64
+	addr  string
+	head  []string
+	cache []string
+	fn    util.FnBool
+}
+
+type gateJobGet struct {
+	tid int64
+	id  string
+	fn  util.FnM2Bool
+}
+
+type gateJobAddrGet struct {
+	tid  int64
+	addr string
+	fn   util.FnM2Bool
+}
+
+type gateJobClose struct {
+	tid   int64
+	id    string
+	head  []string
+	cache []string
+}
+
+type gateJobAddrClose struct {
+	tid   int64
+	addr  string
+	head  []string
+	cache []string
+}

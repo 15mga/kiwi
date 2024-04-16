@@ -132,28 +132,24 @@ func (s *router) OnNotice(pkt kiwi.IRcvNotice) {
 
 func ActivePrcPus[Pus util.IMsg](pkt kiwi.IRcvPush, key string, handler func(kiwi.IRcvPush, Pus)) {
 	pkt.SetWorker(kiwi.EWorkerActive, key)
-	worker.Active().Push(key, func(params []any) {
-		pkt, handler := util.SplitSlc2[kiwi.IRcvPush, func(kiwi.IRcvPush, Pus)](params)
-		pus := pkt.Msg().(Pus)
+	worker.Active().Push(key, func(_ any) {
 		kiwi.TI(pkt.Tid(), "push", util.M{
-			"pus":  pus,
-			"name": pus.ProtoReflect().Descriptor().Name(),
+			"pus":  pkt,
+			"name": pkt.Msg().ProtoReflect().Descriptor().Name(),
 		})
-		handler(pkt, pus)
-	}, pkt, handler)
+		handler(pkt, pkt.(Pus))
+	}, nil)
 }
 
 func SharePrcPus[Pus util.IMsg](pkt kiwi.IRcvPush, key string, handler func(kiwi.IRcvPush, Pus)) {
 	pkt.SetWorker(kiwi.EWorkerShare, key)
-	worker.Share().Push(key, func(params []any) {
-		pkt, handler := util.SplitSlc2[kiwi.IRcvPush, func(kiwi.IRcvPush, Pus)](params)
-		pus := pkt.Msg().(Pus)
+	worker.Share().Push(key, func(_ any) {
 		kiwi.TI(pkt.Tid(), "push", util.M{
-			"pus":  pus,
-			"name": pus.ProtoReflect().Descriptor().Name(),
+			"pus":  pkt,
+			"name": pkt.Msg().ProtoReflect().Descriptor().Name(),
 		})
-		handler(pkt, pus)
-	}, pkt, handler)
+		handler(pkt, pkt.(Pus))
+	}, nil)
 }
 
 func GoPrcPus[Pus util.IMsg](pkt kiwi.IRcvPush, handler func(kiwi.IRcvPush, Pus)) {
@@ -173,15 +169,13 @@ func GoPrcPus[Pus util.IMsg](pkt kiwi.IRcvPush, handler func(kiwi.IRcvPush, Pus)
 
 func GlobalPrcPus[Pus util.IMsg](pkt kiwi.IRcvPush, handler func(kiwi.IRcvPush, Pus)) {
 	pkt.SetWorker(kiwi.EWorkerGlobal, "")
-	worker.Global().Push(func(params []any) {
-		pkt, handler := util.SplitSlc2[kiwi.IRcvPush, func(kiwi.IRcvPush, Pus)](params)
-		pus := pkt.Msg().(Pus)
+	worker.Global().Push(func(_ any) {
 		kiwi.TI(pkt.Tid(), "push", util.M{
-			"pus":  pus,
-			"name": pus.ProtoReflect().Descriptor().Name(),
+			"pus":  pkt,
+			"name": pkt.Msg().ProtoReflect().Descriptor().Name(),
 		})
-		handler(pkt, pus)
-	}, pkt, handler)
+		handler(pkt, pkt.(Pus))
+	}, nil)
 }
 
 func SelfPrcPus[Pus util.IMsg](pkt kiwi.IRcvPush, handler func(kiwi.IRcvPush, Pus)) {
@@ -196,23 +190,20 @@ func SelfPrcPus[Pus util.IMsg](pkt kiwi.IRcvPush, handler func(kiwi.IRcvPush, Pu
 
 func ActivePrcReq[Req, Res util.IMsg](pkt kiwi.IRcvRequest, key string, handler func(kiwi.IRcvRequest, Req, Res)) {
 	pkt.SetWorker(kiwi.EWorkerActive, key)
-	worker.Active().Push(key, func(params []any) {
-		pkt, handler := util.SplitSlc2[kiwi.IRcvRequest, func(kiwi.IRcvRequest, Req, Res)](params)
-		code := pkt.Code()
-		res, err := kiwi.CodecSpawnRes[Res](pkt.Svc(), code)
+	worker.Active().Push(key, func(_ any) {
+		res, err := kiwi.CodecSpawnRes[Res](pkt.Svc(), pkt.Code())
 		if err != nil {
 			pkt.Err(err)
 			return
 		}
 		req := pkt.Msg().(Req)
 		handler(pkt, req, res)
-	}, pkt, handler)
+	}, nil)
 }
 
 func SharePrcReq[Req, Res util.IMsg](pkt kiwi.IRcvRequest, key string, handler func(kiwi.IRcvRequest, Req, Res)) {
 	pkt.SetWorker(kiwi.EWorkerShare, key)
-	worker.Share().Push(key, func(params []any) {
-		pkt, handler := util.SplitSlc2[kiwi.IRcvRequest, func(kiwi.IRcvRequest, Req, Res)](params)
+	worker.Share().Push(key, func(_ any) {
 		code := pkt.Code()
 		res, err := kiwi.CodecSpawnRes[Res](pkt.Svc(), code)
 		if err != nil {
@@ -221,7 +212,7 @@ func SharePrcReq[Req, Res util.IMsg](pkt kiwi.IRcvRequest, key string, handler f
 		}
 		req := pkt.Msg().(Req)
 		handler(pkt, req, res)
-	}, pkt, handler)
+	}, nil)
 }
 
 func GoPrcReq[Req, Res util.IMsg](pkt kiwi.IRcvRequest, handler func(kiwi.IRcvRequest, Req, Res)) {
@@ -243,8 +234,7 @@ func GoPrcReq[Req, Res util.IMsg](pkt kiwi.IRcvRequest, handler func(kiwi.IRcvRe
 
 func GlobalPrcReq[Req, Res util.IMsg](pkt kiwi.IRcvRequest, handler func(kiwi.IRcvRequest, Req, Res)) {
 	pkt.SetWorker(kiwi.EWorkerGlobal, "")
-	worker.Global().Push(func(params []any) {
-		pkt, handler := util.SplitSlc2[kiwi.IRcvRequest, func(kiwi.IRcvRequest, Req, Res)](params)
+	worker.Global().Push(func(_ any) {
 		code := pkt.Code()
 		res, err := kiwi.CodecSpawnRes[Res](pkt.Svc(), code)
 		if err != nil {
@@ -253,7 +243,7 @@ func GlobalPrcReq[Req, Res util.IMsg](pkt kiwi.IRcvRequest, handler func(kiwi.IR
 		}
 		req := pkt.Msg().(Req)
 		handler(pkt, req, res)
-	}, pkt, handler)
+	}, nil)
 }
 
 func SelfPrcReq[Req, Res util.IMsg](pkt kiwi.IRcvRequest, handler func(kiwi.IRcvRequest, Req, Res)) {
@@ -270,28 +260,26 @@ func SelfPrcReq[Req, Res util.IMsg](pkt kiwi.IRcvRequest, handler func(kiwi.IRcv
 
 func ActivePrcNtc[Ntc util.IMsg](pkt kiwi.IRcvNotice, key string, handler func(kiwi.IRcvNotice, Ntc)) {
 	pkt.SetWorker(kiwi.EWorkerActive, key)
-	worker.Active().Push(key, func(params []any) {
-		pkt, handler := util.SplitSlc2[kiwi.IRcvNotice, func(kiwi.IRcvNotice, Ntc)](params)
+	worker.Active().Push(key, func(_ any) {
 		ntc := pkt.Msg().(Ntc)
 		kiwi.TI(pkt.Tid(), "notice", util.M{
 			"ntc":  ntc,
 			"name": ntc.ProtoReflect().Descriptor().Name(),
 		})
 		handler(pkt, ntc)
-	}, pkt, handler)
+	}, nil)
 }
 
 func SharePrcNtc[Ntc util.IMsg](pkt kiwi.IRcvNotice, key string, handler func(kiwi.IRcvNotice, Ntc)) {
 	pkt.SetWorker(kiwi.EWorkerShare, key)
-	worker.Share().Push(key, func(params []any) {
-		pkt, handler := util.SplitSlc2[kiwi.IRcvNotice, func(kiwi.IRcvNotice, Ntc)](params)
+	worker.Share().Push(key, func(_ any) {
 		ntc := pkt.Msg().(Ntc)
 		kiwi.TI(pkt.Tid(), "notice", util.M{
 			"ntc":  ntc,
 			"name": ntc.ProtoReflect().Descriptor().Name(),
 		})
 		handler(pkt, ntc)
-	}, pkt, handler)
+	}, nil)
 }
 
 func GoPrcNtc[Ntc util.IMsg](pkt kiwi.IRcvNotice, handler func(kiwi.IRcvNotice, Ntc)) {
@@ -311,15 +299,14 @@ func GoPrcNtc[Ntc util.IMsg](pkt kiwi.IRcvNotice, handler func(kiwi.IRcvNotice, 
 
 func GlobalPrcNtc[Ntc util.IMsg](pkt kiwi.IRcvNotice, handler func(kiwi.IRcvNotice, Ntc)) {
 	pkt.SetWorker(kiwi.EWorkerGlobal, "")
-	worker.Global().Push(func(params []any) {
-		pkt, handler := util.SplitSlc2[kiwi.IRcvNotice, func(kiwi.IRcvNotice, Ntc)](params)
+	worker.Global().Push(func(_ any) {
 		ntc := pkt.Msg().(Ntc)
 		kiwi.TI(pkt.Tid(), "notice", util.M{
 			"ntc":  ntc,
 			"name": ntc.ProtoReflect().Descriptor().Name(),
 		})
 		handler(pkt, ntc)
-	}, pkt, handler)
+	}, nil)
 }
 
 func SelfPrcNtc[Ntc util.IMsg](pkt kiwi.IRcvNotice, handler func(kiwi.IRcvNotice, Ntc)) {

@@ -20,7 +20,7 @@ func InitGlobal() {
 
 func NewGlobal() *global {
 	return &global{
-		worker: NewFnWorker(),
+		worker: NewFnWorker(1024),
 	}
 }
 
@@ -28,8 +28,8 @@ type global struct {
 	worker *FnWorker
 }
 
-func (o *global) Push(fn util.FnAnySlc, params ...any) {
-	o.worker.Push(fn, params...)
+func (o *global) Push(fn util.FnAny, data any) {
+	o.worker.Push(fn, data)
 }
 
 func (o *global) Dispose() {

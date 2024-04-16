@@ -349,15 +349,17 @@ func AsyncSubReq[ResT util.IMsg](pkt kiwi.IRcvRequest, head util.M, req util.IMs
 			if resFail == nil {
 				return
 			}
-			worker.Active().Push(pkt.WorkerKey(), func(params []any) {
-				resFail(util.SplitSlc3[int64, util.M, uint16](params))
-			}, tid, head, code)
+			worker.Active().Push(pkt.WorkerKey(), func(data any) {
+				d := data.(sndReqJobActiveFail)
+				resFail(d.tid, d.m, d.code)
+			}, sndReqJobActiveFail{tid, head, code})
 		}, func(tid int64, head util.M, msg util.IMsg) {
 			res, ok := msg.(ResT)
 			if ok {
-				worker.Active().Push(pkt.WorkerKey(), func(params []any) {
-					resOk(util.SplitSlc3[int64, util.M, ResT](params))
-				}, tid, head, res)
+				worker.Active().Push(pkt.WorkerKey(), func(data any) {
+					d := data.(sndReqJobActiveOk)
+					resOk(d.tid, d.m, d.res.(ResT))
+				}, sndReqJobActiveOk{tid, head, res})
 			} else {
 				kiwi.TE2(pkt.Tid(), util.EcWrongType, util.M{
 					"expected": reflect.TypeOf(util.Default[ResT]()),
@@ -370,15 +372,17 @@ func AsyncSubReq[ResT util.IMsg](pkt kiwi.IRcvRequest, head util.M, req util.IMs
 			if resFail == nil {
 				return
 			}
-			worker.Share().Push(pkt.WorkerKey(), func(params []any) {
-				resFail(util.SplitSlc3[int64, util.M, uint16](params))
-			}, tid, head, code)
+			worker.Share().Push(pkt.WorkerKey(), func(data any) {
+				d := data.(sndReqJobActiveFail)
+				resFail(d.tid, d.m, d.code)
+			}, sndReqJobActiveFail{tid, head, code})
 		}, func(tid int64, head util.M, msg util.IMsg) {
 			res, ok := msg.(ResT)
 			if ok {
-				worker.Share().Push(pkt.WorkerKey(), func(params []any) {
-					resOk(util.SplitSlc3[int64, util.M, ResT](params))
-				}, tid, head, res)
+				worker.Share().Push(pkt.WorkerKey(), func(data any) {
+					d := data.(sndReqJobActiveOk)
+					resOk(d.tid, d.m, d.res.(ResT))
+				}, sndReqJobActiveOk{tid, head, res})
 			} else {
 				kiwi.TE2(pkt.Tid(), util.EcWrongType, util.M{
 					"expected": reflect.TypeOf(util.Default[ResT]()),
@@ -391,15 +395,17 @@ func AsyncSubReq[ResT util.IMsg](pkt kiwi.IRcvRequest, head util.M, req util.IMs
 			if resFail == nil {
 				return
 			}
-			worker.Global().Push(func(params []any) {
-				resFail(util.SplitSlc3[int64, util.M, uint16](params))
-			}, tid, head, code)
+			worker.Global().Push(func(data any) {
+				d := data.(sndReqJobActiveFail)
+				resFail(d.tid, d.m, d.code)
+			}, sndReqJobActiveFail{tid, head, code})
 		}, func(tid int64, head util.M, msg util.IMsg) {
 			res, ok := msg.(ResT)
 			if ok {
-				worker.Global().Push(func(params []any) {
-					resOk(util.SplitSlc3[int64, util.M, ResT](params))
-				}, tid, head, res)
+				worker.Global().Push(func(data any) {
+					d := data.(sndReqJobActiveOk)
+					resOk(d.tid, d.m, d.res.(ResT))
+				}, sndReqJobActiveOk{tid, head, res})
 			} else {
 				kiwi.TE2(pkt.Tid(), util.EcWrongType, util.M{
 					"expected": reflect.TypeOf(util.Default[ResT]()),
@@ -425,4 +431,16 @@ func AsyncSubReq[ResT util.IMsg](pkt kiwi.IRcvRequest, head util.M, req util.IMs
 			}
 		})
 	}
+}
+
+type sndReqJobActiveFail struct {
+	tid  int64
+	m    util.M
+	code uint16
+}
+
+type sndReqJobActiveOk struct {
+	tid int64
+	m   util.M
+	res any
 }

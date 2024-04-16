@@ -18,7 +18,7 @@ func Client() *etcd.Client {
 func Conn(cfg etcd.Config) *util.Err {
 	client, e := etcd.New(cfg)
 	if e != nil {
-		return util.WrapErr(util.EcEtcdErr, e)
+		return util.WrapErr(util.EcDiscoveryErr, e)
 	}
 	_Etcd = client
 	return nil
@@ -27,12 +27,12 @@ func Conn(cfg etcd.Config) *util.Err {
 func Grant(ttl int64) (int64, *util.Err) {
 	res, e := _Etcd.Grant(util.Ctx(), ttl)
 	if e != nil {
-		return 0, util.WrapErr(util.EcEtcdErr, e)
+		return 0, util.WrapErr(util.EcDiscoveryErr, e)
 	}
 	id := res.ID
 	ch, e := _Etcd.KeepAlive(util.Ctx(), id)
 	if e != nil {
-		return 0, util.WrapErr(util.EcEtcdErr, e)
+		return 0, util.WrapErr(util.EcDiscoveryErr, e)
 	}
 	go func() {
 		for r := range ch {
@@ -47,13 +47,13 @@ func Grant(ttl int64) (int64, *util.Err) {
 
 func Revoke(id int64) *util.Err {
 	_, e := _Etcd.Revoke(util.Ctx(), etcd.LeaseID(id))
-	return util.WrapErr(util.EcEtcdErr, e)
+	return util.WrapErr(util.EcDiscoveryErr, e)
 }
 
 func Del(key string, opts ...etcd.OpOption) *util.Err {
 	_, e := _Etcd.Delete(util.Ctx(), key, opts...)
 	if e != nil {
-		return util.WrapErr(util.EcEtcdErr, e)
+		return util.WrapErr(util.EcDiscoveryErr, e)
 	}
 	return nil
 }
@@ -61,7 +61,7 @@ func Del(key string, opts ...etcd.OpOption) *util.Err {
 func Put(key, val string) *util.Err {
 	_, e := _Etcd.Put(util.Ctx(), key, val)
 	if e != nil {
-		return util.WrapErr(util.EcEtcdErr, e)
+		return util.WrapErr(util.EcDiscoveryErr, e)
 	}
 	return nil
 }
@@ -77,7 +77,7 @@ func PutWithTtl(key, val string, ttl int64) (int64, *util.Err) {
 		return 0, err
 	}
 	_, e := _Etcd.Put(util.Ctx(), key, val, etcd.WithLease(etcd.LeaseID(id)))
-	return id, util.WrapErr(util.EcEtcdErr, e)
+	return id, util.WrapErr(util.EcDiscoveryErr, e)
 }
 
 func Lock(key string, fn util.ToErr) *util.Err {
@@ -87,14 +87,14 @@ func Lock(key string, fn util.ToErr) *util.Err {
 
 	s, e := concurrency.NewSession(_Etcd, concurrency.WithTTL(_LockTtl))
 	if e != nil {
-		return util.WrapErr(util.EcEtcdErr, e)
+		return util.WrapErr(util.EcDiscoveryErr, e)
 	}
 	defer s.Close()
 	m := concurrency.NewMutex(s, key)
 
 	e = m.Lock(util.Ctx())
 	if e != nil {
-		return util.WrapErr(util.EcEtcdErr, e)
+		return util.WrapErr(util.EcDiscoveryErr, e)
 	}
 	err := fn()
 	_ = m.Unlock(util.Ctx())
@@ -108,14 +108,14 @@ func TryLock(key string, fn util.Fn) *util.Err {
 
 	s, e := concurrency.NewSession(_Etcd, concurrency.WithTTL(_LockTtl))
 	if e != nil {
-		return util.WrapErr(util.EcEtcdErr, e)
+		return util.WrapErr(util.EcDiscoveryErr, e)
 	}
 	defer s.Close()
 	m := concurrency.NewMutex(s, key)
 
 	e = m.TryLock(util.Ctx())
 	if e != nil {
-		return util.WrapErr(util.EcEtcdErr, e)
+		return util.WrapErr(util.EcDiscoveryErr, e)
 	}
 	fn()
 	_ = m.Unlock(util.Ctx())
@@ -125,7 +125,7 @@ func TryLock(key string, fn util.Fn) *util.Err {
 func Get(key string, fn util.StrBytesToBool, opts ...etcd.OpOption) (bool, *util.Err) {
 	res, e := _Etcd.Get(util.Ctx(), key, opts...)
 	if e != nil {
-		return false, util.NewErr(util.EcEtcdErr, util.M{
+		return false, util.NewErr(util.EcDiscoveryErr, util.M{
 			"key": key,
 		})
 	}
@@ -143,7 +143,7 @@ func Get(key string, fn util.StrBytesToBool, opts ...etcd.OpOption) (bool, *util
 func GetOne(key string, opts ...etcd.OpOption) ([]byte, *util.Err) {
 	res, e := _Etcd.Get(util.Ctx(), key, opts...)
 	if e != nil {
-		return nil, util.NewErr(util.EcEtcdErr, util.M{
+		return nil, util.NewErr(util.EcDiscoveryErr, util.M{
 			"key": key,
 		})
 	}

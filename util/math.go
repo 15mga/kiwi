@@ -172,7 +172,7 @@ func NextCap(required, current, slow int) (int, bool) {
 		return NextPowerOfTwo(required), true
 	}
 	for current < required {
-		current = current << 1
+		current += slow
 	}
 	return current, true
 }

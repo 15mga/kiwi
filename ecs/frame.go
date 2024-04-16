@@ -3,18 +3,11 @@ package ecs
 import (
 	"context"
 	"github.com/15mga/kiwi/ds"
-	"github.com/15mga/kiwi/worker"
 	"sync"
 	"time"
 
 	"github.com/15mga/kiwi"
 	"github.com/15mga/kiwi/util"
-)
-
-const (
-	cmdFrameAddSystem = "add_system"
-	cmdFrameDelSystem = "del_system"
-	cmdFrameJob       = "job_system"
 )
 
 type (
@@ -61,6 +54,7 @@ func NewFrame(scene *Scene, opts ...FrameOption) *Frame {
 	}
 	ctx, ccl := context.WithCancel(util.Ctx())
 	now := time.Now().UnixMilli()
+	c := 2048
 	f := &Frame{
 		option:       o,
 		startTime:    now,
@@ -68,15 +62,22 @@ func NewFrame(scene *Scene, opts ...FrameOption) *Frame {
 		scene:        scene,
 		systems:      o.systems,
 		typeToSystem: make(map[TSystem]ISystem, len(o.systems)),
-		jobToSystem:  make(map[worker.JobName]ISystem, len(o.systems)),
-		sign:         make(chan struct{}, 1),
+		jobToSystem:  make(map[string]ISystem, len(o.systems)),
 		ctx:          ctx,
 		ccl:          ccl,
+		sign:         make(chan struct{}, 1),
+		swap: &buffer{
+			items: make([]*bufferData, c),
+			cap:   c,
+		},
+		buffer: &buffer{
+			items: make([]*bufferData, c),
+			cap:   c,
+		},
 	}
 	for _, system := range o.systems {
 		f.typeToSystem[system.Type()] = system
 	}
-	f.cmdBuffer = newBuffer()
 	f.before = ds.NewFnLink()
 	f.after = ds.NewFnLink()
 	return f
@@ -94,16 +95,16 @@ type Frame struct {
 	scene        *Scene
 	systems      []ISystem
 	typeToSystem map[TSystem]ISystem
-	jobToSystem  map[worker.JobName]ISystem
-	cmdBuffer    *Buffer
+	jobToSystem  map[string]ISystem
 	before       *ds.FnLink
 	after        *ds.FnLink
-	mtx          sync.Mutex
-	sign         chan struct{}
-	head         *job
-	tail         *job
 	ctx          context.Context
 	ccl          context.CancelFunc
+	buffer       *buffer
+	swap         *buffer
+	mtx          sync.Mutex
+	sign         chan struct{}
+	idx          int
 }
 
 func (f *Frame) Num() int64 {
@@ -194,7 +195,17 @@ func (f *Frame) Start() {
 			case <-ticker.C:
 				f.tick()
 			case <-f.sign:
-				f.do()
+				for {
+					f.mtx.Lock()
+					if f.buffer.count == 0 {
+						f.mtx.Unlock()
+						break
+					}
+					f.swap, f.buffer = f.buffer, f.swap
+					f.mtx.Unlock()
+
+					f.do()
+				}
 			}
 		}
 	}()
@@ -226,17 +237,9 @@ func (f *Frame) tick() {
 	}
 }
 
-func (f *Frame) AddSystem(system ISystem, before TSystem) {
-	f.push(cmdFrameAddSystem, system, before)
-}
-
-func (f *Frame) DelSystem(t TSystem) {
-	f.push(cmdFrameDelSystem, t)
-}
-
 // PushJob frame 外部使用，协程安全的
-func (f *Frame) PushJob(name JobName, data ...any) {
-	f.push(cmdFrameJob, name, data)
+func (f *Frame) PushJob(name string, data any) {
+	f.push(name, data)
 }
 
 func (f *Frame) AfterClearTags(tags ...string) {
@@ -285,13 +288,8 @@ func (f *Frame) onDelSystem(data []any) {
 	}
 }
 
-func (f *Frame) onJobSystem(data []any) {
-	name, params := util.SplitSlc2[string, []any](data)
-	f.PutJob(name, params...)
-}
-
 // PutJob system内部使用，注意协程安全，需要回到主协程使用
-func (f *Frame) PutJob(name JobName, data ...any) {
+func (f *Frame) PutJob(name string, data any) {
 	system, ok := f.jobToSystem[name]
 	if !ok {
 		kiwi.Error2(util.EcNotExist, util.M{
@@ -299,21 +297,12 @@ func (f *Frame) PutJob(name JobName, data ...any) {
 		})
 		return
 	}
-	system.PutJob(name, data...)
+	system.PutJob(name, data)
 }
 
-func (f *Frame) push(cmd JobName, data ...any) {
-	j := _JobPool.Get().(*job)
-	j.Name = cmd
-	j.Data = data
-
+func (f *Frame) push(name string, data any) {
 	f.mtx.Lock()
-	if f.head != nil {
-		f.tail.next = j
-	} else {
-		f.head = j
-	}
-	f.tail = j
+	f.buffer.Push(name, data)
 	f.mtx.Unlock()
 
 	select {
@@ -322,34 +311,49 @@ func (f *Frame) push(cmd JobName, data ...any) {
 	}
 }
 
-func (f *Frame) bindJob(name worker.JobName, system ISystem) {
+func (f *Frame) bindJob(name string, system ISystem) {
 	f.jobToSystem[name] = system
 }
 
 func (f *Frame) do() {
-	f.mtx.Lock()
-	head := f.head
-	f.head = nil
-	f.tail = nil
-	f.mtx.Unlock()
-
-	if head == nil {
+	if f.swap.count == 0 {
 		return
 	}
-
-	for j := head; j != nil; {
-		switch j.Name {
-		case cmdFrameAddSystem:
-			f.onAddSystem(j.Data)
-		case cmdFrameDelSystem:
-			f.onDelSystem(j.Data)
-		case cmdFrameJob:
-			f.onJobSystem(j.Data)
-		}
-		next := j.next
-		j.Data = nil
-		j.next = nil
-		_JobPool.Put(j)
-		j = next
+	items := f.swap.items
+	for _, item := range items[f.idx:f.swap.count] {
+		f.PutJob(item.name, item.data)
+		item.data = nil
 	}
+	f.swap.count = 0
+	f.idx = 0
+}
+
+type buffer struct {
+	items []*bufferData
+	cap   int
+	count int
+}
+
+func (b *buffer) Push(name string, data any) {
+	if b.count == b.cap {
+		b.cap = b.count << 1
+		items := make([]*bufferData, b.cap)
+		copy(items, b.items)
+		b.items = items
+	}
+	if b.items[b.count] == nil {
+		b.items[b.count] = &bufferData{
+			name: name,
+			data: data,
+		}
+	} else {
+		b.items[b.count].name = name
+		b.items[b.count].data = data
+	}
+	b.count++
+}
+
+type bufferData struct {
+	name string
+	data any
 }

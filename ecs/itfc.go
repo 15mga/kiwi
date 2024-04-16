@@ -27,15 +27,15 @@ type ISystem interface {
 	OnAfterStart()
 	OnStop()
 	OnUpdate()
-	PutJob(name JobName, data ...any)
-	DoJob(name JobName)
-	BindJob(name JobName, handler util.FnAnySlc)
-	BindPJob(name JobName, min int, fn util.FnAnySlc)
-	BindPFnJob(name JobName, min int, fn FnLinkAnySlc)
+	PutJob(name string, data ...any)
+	DoJob(name string)
+	BindJob(name string, handler util.FnAny)
+	BindPJob(name string, min int, fn util.FnAny)
+	BindAfterPJob(name string, min int, fn FnAnyAndLink)
 	PTagComponents(tag string, min int, fn func(IComponent)) ([]IComponent, bool)
-	PTagComponentsWithParams(tag string, min int, fn func(IComponent, []any), params ...any) ([]IComponent, bool)
-	PTagComponentsToFnLink(tag string, min int, fn func(IComponent, *ds.FnLink)) ([]IComponent, bool)
-	PTagComponentsToFnLinkWithParams(tag string, min int, fn func(IComponent, []any, *ds.FnLink), params ...any) ([]IComponent, bool)
+	PComponents(components []IComponent, min int, fn func(IComponent))
+	PFilterTagComponents(tag string, min int, filter func(IComponent) bool, fn func([]IComponent)) ([]IComponent, bool)
+	PFilterComponents(components []IComponent, min int, filter func(IComponent) bool, fn func([]IComponent))
 }
 
 type IEvent interface {
@@ -43,12 +43,5 @@ type IEvent interface {
 }
 
 type (
-	TJob         uint8
-	FnLinkAnySlc func(*ds.FnLink, []any)
-)
-
-const (
-	JobDef TJob = iota
-	JobP
-	JobPLink
+	FnAnyAndLink func(any, *ds.FnLink)
 )

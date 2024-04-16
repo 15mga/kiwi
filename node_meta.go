@@ -10,7 +10,7 @@ var (
 	_NodeMeta = &NodeMeta{
 		StartTime: time.Now().Unix(),
 		Data:      util.M{},
-		Services:  make(map[TSvc]string, 8),
+		SvcToVer:  make(map[TSvc]*SvcConf, 8),
 	}
 )
 
@@ -20,12 +20,17 @@ func GetNodeMeta() *NodeMeta {
 
 type NodeMeta struct {
 	Ip        string
-	Port      int
 	NodeId    int64
 	StartTime int64
 	Data      util.M
 	Mode      string
-	Services  map[TSvc]string
+	SvcToVer  map[TSvc]*SvcConf
+}
+
+type SvcConf struct {
+	Name string
+	Ver  string
+	Port int
 }
 
 func (n *NodeMeta) Init(id int64) {
@@ -36,11 +41,15 @@ func (n *NodeMeta) Init(id int64) {
 	})
 }
 
-func (n *NodeMeta) AddService(svc TSvc, ver string) {
-	n.Services[svc] = ver
+func (n *NodeMeta) AddService(svc TSvc, port int, name, ver string) {
+	n.SvcToVer[svc] = &SvcConf{
+		Name: name,
+		Ver:  ver,
+		Port: port,
+	}
 }
 
 func (n *NodeMeta) HasService(svc TSvc) bool {
-	_, ok := n.Services[svc]
+	_, ok := n.SvcToVer[svc]
 	return ok
 }

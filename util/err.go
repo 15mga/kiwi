@@ -50,7 +50,7 @@ const (
 	EcServiceErr
 	EcDbErr
 	EcRedisErr
-	EcEtcdErr
+	EcDiscoveryErr
 )
 
 var (
@@ -90,7 +90,7 @@ var (
 		EcServiceErr:    "service_error",
 		EcDbErr:         "database_error",
 		EcRedisErr:      "redis_wrong",
-		EcEtcdErr:       "etcd_wrong",
+		EcDiscoveryErr:  "discovery_wrong",
 		EcAddrErr:       "get_addr_error",
 		EcUnavailable:   "unavailable",
 		EcNotImplement:  "not_implement",

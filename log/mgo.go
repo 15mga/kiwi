@@ -14,11 +14,9 @@ import (
 )
 
 const (
-	cmdLog   = "log"
-	cmdTrace = "trace"
-	cmdSpan  = "span"
-	cmdFlush = "flush"
-	cmdOver  = "over"
+	mgoLog   = "log"
+	mgoTrace = "trace"
+	mgoSpan  = "span"
 )
 
 type (
@@ -148,13 +146,13 @@ func NewMgo(opts ...MgoOption) *mgoLogger {
 		nameMap[name] = struct{}{}
 	}
 
-	if _, ok := nameMap[cmdLog]; !ok {
-		e = l.db.CreateCollection(context.TODO(), cmdLog, l.option.logOpt)
+	if _, ok := nameMap[mgoLog]; !ok {
+		e = l.db.CreateCollection(context.TODO(), mgoLog, l.option.logOpt)
 		if e != nil {
 			panic(e.Error())
 		}
 	}
-	logColl := l.db.Collection(cmdLog)
+	logColl := l.db.Collection(mgoLog)
 	_, _ = logColl.Indexes().CreateMany(context.TODO(),
 		append(l.option.logIdx,
 			mongo.IndexModel{
@@ -166,13 +164,13 @@ func NewMgo(opts ...MgoOption) *mgoLogger {
 			}))
 	l.logBuffer = newMgoBuffer(16, logColl)
 
-	if _, ok := nameMap[cmdLog]; !ok {
-		e = l.db.CreateCollection(context.TODO(), cmdTrace, l.option.traceOpt)
+	if _, ok := nameMap[mgoLog]; !ok {
+		e = l.db.CreateCollection(context.TODO(), mgoTrace, l.option.traceOpt)
 		if e != nil {
 			panic(e.Error())
 		}
 	}
-	traceColl := l.db.Collection(cmdTrace)
+	traceColl := l.db.Collection(mgoTrace)
 	_, _ = traceColl.Indexes().CreateMany(context.TODO(),
 		append(l.option.spanIdx,
 			mongo.IndexModel{
@@ -190,13 +188,13 @@ func NewMgo(opts ...MgoOption) *mgoLogger {
 			}))
 	l.traceBuffer = newMgoBuffer(32, traceColl)
 
-	if _, ok := nameMap[cmdSpan]; !ok {
-		e = l.db.CreateCollection(context.TODO(), cmdSpan, l.option.spanOpt)
+	if _, ok := nameMap[mgoSpan]; !ok {
+		e = l.db.CreateCollection(context.TODO(), mgoSpan, l.option.spanOpt)
 		if e != nil {
 			panic(e.Error())
 		}
 	}
-	spanColl := l.db.Collection(cmdSpan)
+	spanColl := l.db.Collection(mgoSpan)
 	_, _ = spanColl.Indexes().CreateMany(context.TODO(),
 		append(l.option.traceIdx,
 			mongo.IndexModel{
@@ -213,7 +211,7 @@ func NewMgo(opts ...MgoOption) *mgoLogger {
 				Keys: bson.D{{"msg", 1}},
 			}))
 	l.spanBuffer = newMgoBuffer(128, spanColl)
-	l.worker = worker.NewJobWorker(l.process)
+	l.worker = worker.NewWorker(1024, l.process)
 	l.worker.Start()
 	clearCh := make(chan chan struct{}, 1)
 	kiwi.BeforeExitFn("mgo log", func() {
@@ -229,9 +227,9 @@ func NewMgo(opts ...MgoOption) *mgoLogger {
 		for {
 			select {
 			case <-ticker.C:
-				l.worker.Push(cmdFlush)
+				l.worker.Push(struct{}{})
 			case ch := <-clearCh:
-				l.worker.Push(cmdOver, ch)
+				l.worker.Push(ch)
 				return
 			}
 		}
@@ -243,7 +241,7 @@ type mgoLogger struct {
 	option      *mgoOption
 	client      *mongo.Client
 	db          *mongo.Database
-	worker      *worker.JobWorker
+	worker      *worker.Worker
 	logBuffer   *mgoBuffer
 	traceBuffer *mgoBuffer
 	spanBuffer  *mgoBuffer
@@ -268,7 +266,7 @@ func (l *mgoLogger) Log(level kiwi.TLevel, msg, caller string, stack []byte, par
 	if !util.TestMask(level, l.option.logLvl) {
 		return
 	}
-	l.worker.Push(cmdLog, &log{
+	l.worker.Push(log{
 		Timestamp: time.Now().UnixMilli(),
 		Level:     level,
 		Message:   msg,
@@ -279,7 +277,7 @@ func (l *mgoLogger) Log(level kiwi.TLevel, msg, caller string, stack []byte, par
 }
 
 func (l *mgoLogger) Trace(pid, tid int64, caller string, params util.M) {
-	l.worker.Push(cmdTrace, &trace{
+	l.worker.Push(trace{
 		Timestamp: time.Now().UnixMilli(),
 		Pid:       pid,
 		Tid:       tid,
@@ -289,7 +287,7 @@ func (l *mgoLogger) Trace(pid, tid int64, caller string, params util.M) {
 }
 
 func (l *mgoLogger) Span(level kiwi.TLevel, tid int64, msg, caller string, stack []byte, params util.M) {
-	l.worker.Push(cmdSpan, &span{
+	l.worker.Push(span{
 		Timestamp: time.Now().UnixMilli(),
 		Level:     level,
 		Tid:       tid,
@@ -300,23 +298,23 @@ func (l *mgoLogger) Span(level kiwi.TLevel, tid int64, msg, caller string, stack
 	})
 }
 
-func (l *mgoLogger) process(job *worker.Job) {
-	switch job.Name {
-	case cmdLog:
-		l.logBuffer.push(job.Data[0])
-	case cmdTrace:
-		l.traceBuffer.push(job.Data[0])
-	case cmdSpan:
-		l.spanBuffer.push(job.Data[0])
-	case cmdFlush:
+func (l *mgoLogger) process(data any) {
+	switch d := data.(type) {
+	case log:
+		l.logBuffer.push(d)
+	case trace:
+		l.traceBuffer.push(d)
+	case span:
+		l.spanBuffer.push(d)
+	case struct{}:
 		l.logBuffer.flush()
 		l.traceBuffer.flush()
 		l.spanBuffer.flush()
-	case cmdOver:
+	case chan struct{}:
 		l.logBuffer.flush()
 		l.traceBuffer.flush()
 		l.spanBuffer.flush()
-		job.Data[0].(chan struct{}) <- struct{}{}
+		d <- struct{}{}
 	}
 }
 

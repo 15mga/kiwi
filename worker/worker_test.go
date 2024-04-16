@@ -14,73 +14,99 @@ type movement struct {
 	wg       *sync.WaitGroup
 }
 
-func testFn(d *movement) {
-	p := util.Vec2Add(d.pos, util.Vec2Mul(d.dir, d.speed))
-	d.pos.X = p.X
-	d.pos.Y = p.Y
-	d.wg.Done()
+type data struct {
+	name string
+	data any
+}
+
+func testFn(a any) {
+	switch m := a.(type) {
+	case *movement:
+		p := util.Vec2Add(m.pos, util.Vec2Mul(m.dir, m.speed))
+		m.pos.X = p.X
+		m.pos.Y = p.Y
+		m.wg.Done()
+	}
+}
+
+func testFn2(d *data) {
+	switch d.name {
+	case "movement":
+		m := d.data.(*movement)
+		p := util.Vec2Add(m.pos, util.Vec2Mul(m.dir, m.speed))
+		m.pos.X = p.X
+		m.pos.Y = p.Y
+		m.wg.Done()
+	}
 }
 
 func BenchmarkWorker(b *testing.B) {
-	dw := newDefWork[*movement](testFn)
-	dw.Start()
-	pool := &sync.Pool{
-		New: func() any {
-			return &job[*movement]{}
-		},
-	}
-	w := NewWorker[*movement](testFn, pool)
-	w.Start()
+	channel := newDefWork(testFn)
+	channel.Start()
+	worker := NewWorker(8096, testFn)
+	worker.Start()
+	worker2 := NewWorker2[*data](8096, testFn2)
+	worker2.Start()
 
 	wg := sync.WaitGroup{}
-	count := 1000
 	m := &movement{
 		pos:   util.Vec2{},
 		dir:   util.Vec2{1, 0},
 		speed: 1,
 		wg:    &wg,
 	}
-	b.Run("def chan", func(b *testing.B) {
-		b.ReportAllocs()
-		for i := 0; i < b.N; i++ {
-			wg.Add(count)
-			for j := 0; j < count; j++ {
-				dw.Push(m)
-			}
-			wg.Wait()
-		}
-	})
-	m = &movement{
-		pos:   util.Vec2{},
-		dir:   util.Vec2{1, 0},
-		speed: 1,
-		wg:    &wg,
+	d := &data{
+		name: "movement",
+		data: m,
 	}
-	b.Run("worker", func(b *testing.B) {
-		b.ReportAllocs()
-		for i := 0; i < b.N; i++ {
-			wg.Add(count)
-			for j := 0; j < 1000; j++ {
-				w.Push(m)
+	countSlc := []int{100, 500, 1000, 2000, 5000}
+	for _, count := range countSlc {
+		b.Run(fmt.Sprintf("chan_%d", count), func(b *testing.B) {
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				wg.Add(count)
+				for j := 0; j < count; j++ {
+					channel.Push(m)
+				}
+				wg.Wait()
 			}
-			wg.Wait()
-		}
-	})
+		})
+		b.Run(fmt.Sprintf("worker_%d", count), func(b *testing.B) {
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				wg.Add(count)
+				for j := 0; j < count; j++ {
+					worker.Push(m)
+				}
+				wg.Wait()
+			}
+		})
+		b.Run(fmt.Sprintf("worker2_%d", count), func(b *testing.B) {
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				wg.Add(count)
+				for j := 0; j < count; j++ {
+					worker2.Push(d)
+				}
+				wg.Wait()
+			}
+		})
+	}
 }
 
-func newDefWork[T any](fn func(T)) *defWorker[T] {
-	return &defWorker[T]{
-		ch: make(chan T, 1),
+func newDefWork(fn func(any)) *defWorker {
+	return &defWorker{
+		ch: make(chan any, 1),
 		fn: fn,
 	}
 }
 
-type defWorker[T any] struct {
-	ch chan T
-	fn func(T)
+type defWorker struct {
+	ch chan any
+	fn func(any)
 }
 
-func (w *defWorker[T]) Start() {
+func (w *defWorker) Start() {
 	go func() {
 		defer func() {
 			if err := recover(); err != nil {
@@ -98,6 +124,6 @@ func (w *defWorker[T]) Start() {
 	}()
 }
 
-func (w *defWorker[T]) Push(item T) {
+func (w *defWorker) Push(item any) {
 	w.ch <- item
 }

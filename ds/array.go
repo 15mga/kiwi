@@ -29,7 +29,7 @@ func (a *arrayBase[T]) Add(item T) {
 	a.count++
 }
 
-func (a *arrayBase[T]) AddRange(items ...T) {
+func (a *arrayBase[T]) AddRange(items []T) {
 	l := len(items)
 	if l == 0 {
 		return
@@ -63,8 +63,10 @@ func (a *arrayBase[T]) Reset() {
 	if a.count == 0 {
 		return
 	}
-	if len(a.items) > (a.defCap << 2) {
-		a.items = make([]T, a.defCap)
+	l := len(a.items)
+	h := l >> 1
+	if a.count < h {
+		a.items = make([]T, h)
 	} else {
 		for i := 0; i < a.count; i++ {
 			a.items[i] = a.defVal
@@ -84,6 +86,10 @@ func (a *arrayBase[T]) HasItem(item T) bool {
 		}
 	}
 	return false
+}
+
+func (a *arrayBase[T]) GetItem(idx int) T {
+	return a.items[idx]
 }
 
 func NewArray[T comparable](defCap int) *Array[T] {

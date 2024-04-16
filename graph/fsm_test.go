@@ -21,7 +21,7 @@ func NewFsmPlugin() *fsmPlugin {
 		pathToTimeout: make(map[string]time.Duration),
 		manualDisable: make(map[string]struct{}),
 		autoEnable:    make(map[string]INode),
-		worker:        worker.NewFnWorker(),
+		worker:        worker.NewFnWorker(1024),
 	}
 }
 
@@ -85,8 +85,8 @@ func (s *fsmPlugin) OnAddNode(g IGraph, nd INode) {
 		nd.AddAfterEnable(func(enable bool) {
 			if enable {
 				nd.Data().Set(PTimout, time.AfterFunc(dur, func() {
-					s.worker.Push(func(params []any) {
-						nd := params[0].(INode)
+					s.worker.Push(func(data any) {
+						nd := data.(INode)
 						err := nd.Out(PTimout, nil)
 						if err != nil {
 							kiwi.Error(err)

@@ -7,16 +7,16 @@ import (
 	"sync"
 )
 
-type buffer struct {
-	items []any
+type buffer2[T comparable] struct {
+	items []T
 	cap   int
 	count int
 }
 
-func (b *buffer) Push(item any) {
+func (b *buffer2[T]) Push(item T) {
 	if b.count == b.cap {
 		b.cap = b.count << 1
-		items := make([]any, b.cap)
+		items := make([]T, b.cap)
 		copy(items, b.items)
 		b.items = items
 	}
@@ -24,40 +24,40 @@ func (b *buffer) Push(item any) {
 	b.count++
 }
 
-func NewWorker(c int, fn func(any)) *Worker {
-	b := &Worker{
+func NewWorker2[T comparable](c int, fn func(T)) *Worker2[T] {
+	b := &Worker2[T]{
 		sign: make(chan struct{}, 1),
 		fn:   fn,
-		swap: &buffer{
-			items: make([]any, c),
+		swap: &buffer2[T]{
+			items: make([]T, c),
 			cap:   c,
 		},
-		buffer: &buffer{
-			items: make([]any, c),
+		buffer: &buffer2[T]{
+			items: make([]T, c),
 			cap:   c,
 		},
 	}
 	return b
 }
 
-type Worker struct {
-	fn     func(any)
-	buffer *buffer
-	swap   *buffer
+type Worker2[T comparable] struct {
+	fn     func(T)
+	buffer *buffer2[T]
+	swap   *buffer2[T]
 	mtx    sync.Mutex
 	sign   chan struct{}
 	idx    int
 }
 
-func (p *Worker) Start() {
+func (p *Worker2[T]) Start() {
 	go p.start()
 }
 
-func (p *Worker) Dispose() {
+func (p *Worker2[T]) Dispose() {
 	close(p.sign)
 }
 
-func (p *Worker) start() {
+func (p *Worker2[T]) start() {
 	defer func() {
 		if err := recover(); err != nil {
 			kiwi.Error2(util.EcServiceErr, util.M{
@@ -84,7 +84,7 @@ func (p *Worker) start() {
 	}
 }
 
-func (p *Worker) Push(item any) {
+func (p *Worker2[T]) Push(item T) {
 	p.mtx.Lock()
 	p.buffer.Push(item)
 	p.mtx.Unlock()
@@ -95,14 +95,14 @@ func (p *Worker) Push(item any) {
 	}
 }
 
-func (p *Worker) do() {
+func (p *Worker2[T]) do() {
 	if p.swap.count == 0 {
 		return
 	}
 	items := p.swap.items
 	for i, item := range items[p.idx:p.swap.count] {
 		p.idx++
-		items[i] = nil
+		items[i] = util.Default[T]()
 		p.fn(item)
 	}
 	p.swap.count = 0

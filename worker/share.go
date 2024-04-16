@@ -6,10 +6,10 @@ import (
 )
 
 var (
-	_Share *fnShare
+	_Share *share
 )
 
-func Share() *fnShare {
+func Share() *share {
 	return _Share
 }
 
@@ -17,34 +17,34 @@ func InitShare() {
 	if _Share != nil {
 		return
 	}
-	_Share = &fnShare{
+	_Share = &share{
 		count:   int64(_ParallelNum),
 		workers: make([]*FnWorker, _ParallelNum),
 	}
 	_Share.mask = _Share.count - 1
 	for i := 0; i < _ParallelNum; i++ {
-		w := NewFnWorker()
+		w := NewFnWorker(128)
 		w.Start()
 		_Share.workers[i] = w
 	}
 }
 
-type fnShare struct {
+type share struct {
 	workers []*FnWorker
 	count   int64
 	mask    int64
 	c       int64
 }
 
-func (s *fnShare) Push(key string, fn util.FnAnySlc, params ...any) {
-	s.workers[FnvHashStr(key)&s.mask].Push(fn, params...)
+func (s *share) Push(key string, fn util.FnAny, data any) {
+	s.workers[FnvHashStr(key)&s.mask].Push(fn, data)
 }
 
-func (s *fnShare) PushInt64(key int64, fn util.FnAnySlc, params ...any) {
-	s.workers[FnvHashInt64(key)&s.mask].Push(fn, params...)
+func (s *share) PushInt64(key int64, fn util.FnAny, data any) {
+	s.workers[FnvHashInt64(key)&s.mask].Push(fn, data)
 }
 
-func (s *fnShare) Dispose() {
+func (s *share) Dispose() {
 	for _, worker := range s.workers {
 		worker.Dispose()
 	}
