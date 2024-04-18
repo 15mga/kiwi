@@ -119,6 +119,8 @@ const (
 	ZSCORE           = "ZSCORE"           // ZSCORE 返回有序集中，成员的分数值
 	ZUNIONSTORE      = "ZUNIONSTORE"      // ZUNIONSTORE 计算给定的一个或多个有序集的并集，并存储在新的 key 中
 	ZSCAN            = "ZSCAN"            // ZSCAN 迭代有序集合中的元素（包括元素成员和元素分值）
+	ZPOPMIN          = "ZPOPMIN"          //ZPOPMIN 删除并返回最多count个有序集合key中最低得分的成员
+	ZPOPMAX          = "ZPOPMAX"          //ZPOPMAX 删除并返回最多count个有序集合key中最高得分的成员
 
 	PFADD   = "PFADD"   // PFADD 添加指定元素到 HyperLogLog 中
 	PFCOUNT = "PFCOUNT" // PFCOUNT 返回给定 HyperLogLog 的基数估算值
