@@ -2,6 +2,7 @@ package core
 
 import (
 	"github.com/15mga/kiwi"
+	"github.com/15mga/kiwi/util"
 )
 
 func InitNodeLocal() {
@@ -56,7 +57,7 @@ func (n *nodeLocal) RequestNode(nodeId int64, req kiwi.ISndRequest) {
 	n.Request(req)
 }
 
-func (n *nodeLocal) Notify(ntf kiwi.ISndNotice) {
+func (n *nodeLocal) Notify(ntf kiwi.ISndNotice, filter util.MToBool) {
 	pkt := NewRcvNtfPkt()
 	msg := ntf.Msg()
 	if msg != nil {
@@ -71,5 +72,5 @@ func (n *nodeLocal) Notify(ntf kiwi.ISndNotice) {
 	kiwi.Router().OnNotice(pkt)
 }
 
-func (n *nodeLocal) ReceiveWatchNotice(nodeId int64, codes []kiwi.TCode) {
+func (n *nodeLocal) ReceiveWatchNotice(nodeId int64, codes []kiwi.TCode, meta util.M) {
 }

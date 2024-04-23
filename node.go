@@ -6,7 +6,7 @@ import (
 
 type (
 	TSvc          = uint16
-	TCode         = uint8
+	TCode         = uint16
 	TSvcCode      = uint16
 	NotifyHandler func(pkt IRcvNotice)
 	PacketToStr   func(IRcvPkt) string
@@ -32,8 +32,8 @@ type INode interface {
 	PushNode(nodeId int64, pus ISndPush)
 	Request(req ISndRequest)
 	RequestNode(nodeId int64, req ISndRequest)
-	Notify(ntf ISndNotice)
-	ReceiveWatchNotice(nodeId int64, methods []TCode)
+	Notify(ntc ISndNotice, filter util.MToBool)
+	ReceiveWatchNotice(nodeId int64, methods []TCode, meta util.M)
 	SendToNode(nodeId int64, bytes []byte, fnErr util.FnErr)
 }
 

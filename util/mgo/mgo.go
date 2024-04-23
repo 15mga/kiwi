@@ -85,6 +85,7 @@ func CheckColl() *util.Err {
 		_, e = coll.Indexes().CreateMany(context.TODO(), idx)
 		if e != nil {
 			return util.NewErr(util.EcDbErr, util.M{
+				"schema": name,
 				"error": e.Error(),
 			})
 		}

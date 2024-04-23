@@ -75,7 +75,15 @@ func (r *SRequest) Ok(head util.M, msg util.IMsg) {
 	defer r.Dispose()
 
 	if r.isBytes {
-		bytes, err := kiwi.Codec().PbMarshal(msg)
+		var (
+			bytes []byte
+			err   *util.Err
+		)
+		if r.json {
+			bytes, err = kiwi.Codec().JsonMarshal(msg)
+		} else {
+			bytes, err = kiwi.Codec().PbMarshal(msg)
+		}
 		if err != nil {
 			r.Error(err)
 			return

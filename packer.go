@@ -15,8 +15,8 @@ func SetPacker(packer IPacker) {
 }
 
 type IPacker interface {
-	PackWatchNotify(id int64, methods []TCode) []byte
-	UnpackWatchNotify(bytes []byte) (id int64, methods []TCode, err *util.Err)
+	PackWatchNotify(id int64, methods []TCode, meta util.M) []byte
+	UnpackWatchNotify(bytes []byte, meta util.M) (id int64, methods []TCode, err *util.Err)
 	PackPush(tid int64, pus ISndPush) ([]byte, *util.Err)
 	UnpackPush(bytes []byte, pkg IRcvPush) (err *util.Err)
 	UnpackPushBytes(bytes []byte, head util.M) (tid int64, json bool, payload []byte, err *util.Err)

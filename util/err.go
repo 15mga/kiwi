@@ -115,7 +115,7 @@ func ErrCodeToStr(ec TErrCode) string {
 
 func WrapErr(code TErrCode, e error) *Err {
 	if e == nil {
-		return &Err{code: code, stack: GetStack(3)}
+		return nil
 	}
 	return &Err{code: code, stack: GetStack(3), params: M{"error": e.Error()}}
 }

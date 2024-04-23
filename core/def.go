@@ -24,7 +24,7 @@ type option struct {
 
 type Meta struct {
 	Id          int64
-	SvcToVer    map[string]string
+	SvcToVer    map[kiwi.TSvc]string
 	SvcNameConv func(string) kiwi.TSvc
 }
 
@@ -139,8 +139,8 @@ func StartDefault(opts ...Option) {
 
 	nodeMeta := kiwi.GetNodeMeta()
 	nodeMeta.Init(opt.meta.Id)
-	for svc, ver := range opt.meta.SvcToVer {
-		nodeMeta.AddService(opt.meta.SvcNameConv(svc), ver)
+	for svc, conf := range opt.meta.SvcToVer {
+		nodeMeta.AddService(svc, conf)
 	}
 
 	if opt.mongo != nil {
@@ -148,11 +148,6 @@ func StartDefault(opts ...Option) {
 		err := mgo.Conn(opt.mongo.db, clientOpt, opt.mongo.options)
 		if err != nil {
 			panic(err)
-		}
-
-		err = mgo.CheckColl()
-		if err != nil {
-			kiwi.Fatal(err)
 		}
 	}
 
@@ -186,6 +181,14 @@ func StartDefault(opts ...Option) {
 		InitGate(opt.gate.receiver, opt.gate.options...)
 	}
 	StartAllService()
+
+	if opt.mongo != nil {
+		err := mgo.CheckColl()
+		if err != nil {
+			kiwi.Fatal(err)
+		}
+	}
+
 	kiwi.WaitExit()
 }
 

@@ -51,6 +51,7 @@ func (s *router) OnRequest(pkt kiwi.IRcvRequest) {
 		}))
 		return
 	}
+	pkt.Head()["rcd"], _ = kiwi.Codec().ReqToResCode(pkt.Svc(), pkt.Code())
 	fn(pkt)
 }
 

@@ -12,16 +12,17 @@ func InitPacker() {
 type packer struct {
 }
 
-func (p *packer) PackWatchNotify(id int64, codes []kiwi.TCode) []byte {
+func (p *packer) PackWatchNotify(id int64, codes []kiwi.TCode, meta util.M) []byte {
 	var buffer util.ByteBuffer
 	buffer.InitCap(11 + len(codes)*2)
 	buffer.WUint8(HdWatch)
 	buffer.WInt64(id)
-	buffer.WUint8s(codes)
+	buffer.WUint16s(codes)
+	_ = buffer.WMAny(meta)
 	return buffer.All()
 }
 
-func (p *packer) UnpackWatchNotify(bytes []byte) (id int64, codes []kiwi.TCode, err *util.Err) {
+func (p *packer) UnpackWatchNotify(bytes []byte, meta util.M) (id int64, codes []kiwi.TCode, err *util.Err) {
 	var buffer util.ByteBuffer
 	buffer.InitBytes(bytes)
 	buffer.SetPos(1)
@@ -29,7 +30,11 @@ func (p *packer) UnpackWatchNotify(bytes []byte) (id int64, codes []kiwi.TCode, 
 	if err != nil {
 		return
 	}
-	codes, err = buffer.RUint8s()
+	codes, err = buffer.RUint16s()
+	if err != nil {
+		return
+	}
+	err = buffer.RMAny(meta)
 	return
 }
 

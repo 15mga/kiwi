@@ -33,5 +33,9 @@ func JsonMarshalIndent(o any, prefix, indent string) ([]byte, *Err) {
 }
 
 func JsonUnmarshal(bytes []byte, o any) *Err {
-	return WrapErr(EcUnmarshallErr, _JsonConf.Unmarshal(bytes, o))
+	err := _JsonConf.Unmarshal(bytes, o)
+	if err != nil {
+		return WrapErr(EcUnmarshallErr, err)
+	}
+	return nil
 }

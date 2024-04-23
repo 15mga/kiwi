@@ -42,7 +42,7 @@ func (n *nodeBase) Notify(ntf kiwi.ISndNotice) {
 	panic("implement me")
 }
 
-func (n *nodeBase) ReceiveWatchNotice(nodeId int64, codes []kiwi.TCode) {
+func (n *nodeBase) ReceiveWatchNotice(nodeId int64, codes []kiwi.TCode, meta util.M) {
 	panic("implement me")
 }
 
@@ -144,7 +144,8 @@ func (n *nodeBase) onNotify(agent kiwi.IAgent, bytes []byte) {
 }
 
 func (n *nodeBase) onWatchNotify(agent kiwi.IAgent, bytes []byte) {
-	nodeId, codes, err := kiwi.Packer().UnpackWatchNotify(bytes)
+	meta := util.M{}
+	nodeId, codes, err := kiwi.Packer().UnpackWatchNotify(bytes, meta)
 	if err != nil {
 		if agent != nil {
 			err.AddParam("addr", agent.Addr())
@@ -152,5 +153,5 @@ func (n *nodeBase) onWatchNotify(agent kiwi.IAgent, bytes []byte) {
 		kiwi.Error(err)
 		return
 	}
-	kiwi.Node().ReceiveWatchNotice(nodeId, codes)
+	kiwi.Node().ReceiveWatchNotice(nodeId, codes, meta)
 }

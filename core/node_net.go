@@ -18,6 +18,7 @@ type (
 		port     int
 		connType NodeConnType
 		selector NodeDialerSelector
+		//metaFilter util.
 	}
 	NodeConnType uint8
 )
@@ -78,7 +79,7 @@ func NewNodeNet(opts ...NodeOption) kiwi.INode {
 		idToDialer: ds.NewKSet[int64, kiwi.INodeDialer](16, func(dialer kiwi.INodeDialer) int64 {
 			return dialer.NodeId()
 		}),
-		codeToWatchers: make(map[kiwi.TCode]map[int64]struct{}),
+		codeToWatchers: make(map[kiwi.TCode]map[int64]util.M),
 	}
 	ip, err := util.CheckLocalIp(opt.ip)
 	if err != nil {
@@ -110,8 +111,8 @@ type nodeNet struct {
 	svcToDialer    *ds.KSet2[kiwi.TSvc, int64, kiwi.INodeDialer]
 	idToDialer     *ds.KSet[int64, kiwi.INodeDialer]
 	listener       kiwi.IListener
-	codeToWatchers map[kiwi.TCode]map[int64]struct{} //本机方法的远程监听者
-	watcherToCodes map[int64][]kiwi.TCode            //远程机监听的方法
+	codeToWatchers map[kiwi.TCode]map[int64]util.M //本机方法的远程监听者
+	watcherToCodes map[int64][]kiwi.TCode          //远程机监听的方法
 }
 
 func (n *nodeNet) Init() *util.Err {
@@ -204,12 +205,12 @@ func (n *nodeNet) RequestNode(nodeId int64, req kiwi.ISndRequest) {
 	n.worker.Push(nodeJobReqNode{nodeId, req})
 }
 
-func (n *nodeNet) Notify(ntf kiwi.ISndNotice) {
-	n.worker.Push(ntf)
+func (n *nodeNet) Notify(ntc kiwi.ISndNotice, filter util.MToBool) {
+	n.worker.Push(nodeJobSendNotice{ntc, filter})
 }
 
-func (n *nodeNet) ReceiveWatchNotice(nodeId int64, codes []kiwi.TCode) {
-	n.worker.Push(nodeJobWatchNotice{nodeId, codes})
+func (n *nodeNet) ReceiveWatchNotice(nodeId int64, codes []kiwi.TCode, meta util.M) {
+	n.worker.Push(nodeJobWatchNotice{nodeId, codes, meta})
 }
 
 func (n *nodeNet) SendToNode(nodeId int64, bytes []byte, fnErr util.FnErr) {
@@ -297,7 +298,7 @@ func (n *nodeNet) processor(data any) {
 		//发送消息监听
 		codes, ok := kiwi.Router().GetWatchCodes(d.dialer.Svc())
 		if ok {
-			bytes := kiwi.Packer().PackWatchNotify(kiwi.GetNodeMeta().NodeId, codes)
+			bytes := kiwi.Packer().PackWatchNotify(kiwi.GetNodeMeta().NodeId, codes, nil)
 			d.dialer.Send(bytes, kiwi.Error)
 		}
 		var head util.M
@@ -352,24 +353,26 @@ func (n *nodeNet) processor(data any) {
 			"head":    dialer.Head(),
 		})
 		dialer.Dialer().Agent().Dispose()
-	case kiwi.ISndNotice:
-		tid := d.Tid()
-		bytes, err := kiwi.Packer().PackNotify(tid, d)
+	case nodeJobSendNotice:
+		tid := d.notice.Tid()
+		bytes, err := kiwi.Packer().PackNotify(tid, d.notice)
 		if err != nil {
 			kiwi.TE(tid, err)
 			return
 		}
-		m, ok := n.codeToWatchers[d.Code()]
+		m, ok := n.codeToWatchers[d.notice.Code()]
 		if !ok {
 			return
 		}
-		for nodeId := range m {
-			dialer, ok := n.idToDialer.Get(nodeId)
-			if !ok {
-				delete(m, nodeId)
-				break
+		for nodeId, meta := range m {
+			if d.filter == nil || d.filter(meta) {
+				dialer, ok := n.idToDialer.Get(nodeId)
+				if ok {
+					dialer.Send(util.CopyBytes(bytes), nil)
+				} else {
+					delete(m, nodeId)
+				}
 			}
-			dialer.Send(util.CopyBytes(bytes), nil)
 		}
 	case nodeJobWatchNotice:
 		_, ok := n.idToDialer.Get(d.nodeId)
@@ -383,10 +386,10 @@ func (n *nodeNet) processor(data any) {
 		for _, code := range d.codes {
 			m, ok := n.codeToWatchers[code]
 			if ok {
-				m[d.nodeId] = struct{}{}
+				m[d.nodeId] = d.meta
 			} else {
-				n.codeToWatchers[code] = map[int64]struct{}{
-					d.nodeId: {},
+				n.codeToWatchers[code] = map[int64]util.M{
+					d.nodeId: d.meta,
 				}
 			}
 		}
@@ -502,9 +505,15 @@ type nodeJobDisconnected struct {
 	err    *util.Err
 }
 
+type nodeJobSendNotice struct {
+	notice kiwi.ISndNotice
+	filter util.MToBool
+}
+
 type nodeJobWatchNotice struct {
 	nodeId int64
 	codes  []kiwi.TCode
+	meta   util.M
 }
 
 type nodeJobPusNode struct {
