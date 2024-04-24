@@ -33,7 +33,7 @@ func (n *nodeTest) PushNode(nodeId int64, pus kiwi.ISndPush) {
 	//	"tid":     pus.Tid(),
 	//	"svc":     pus.Svc(),
 	//	"code":    pus.Code(),
-	//	"head":    pus.Head(),
+	//	"head":    pus.Data(),
 	//	"msg":     pus.Msg(),
 	//})
 }

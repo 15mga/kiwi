@@ -8,27 +8,29 @@ import (
 	"github.com/15mga/kiwi/network"
 	"github.com/15mga/kiwi/util"
 	"github.com/15mga/kiwi/worker"
+	"strings"
 )
 
 type (
-	MsgToStrAny func(client *Client, msg util.IMsg) (point string, data any)
+	MsgToStrAny func(msg util.IMsg) (point string, data any)
 	Decoder     func(kiwi.IAgent, []byte) (svc kiwi.TSvc, mtd kiwi.TCode, msg util.IMsg, err *util.Err)
 )
 
 type Receiver struct {
-	Node string
-	Fn   MsgToStrAny
+	Node  string
+	Point string
+	Fn    MsgToStrAny
 }
 
 type Option struct {
-	Id      string
 	Name    string
 	Ip      string
 	Port    int
 	Mermaid []byte
 	Decoder Decoder
-	Head    util.M
-	HeadLen uint32
+	Data    util.M
+	HeadLen int
+	Type    string
 }
 
 func NewClient(opt Option) (*Client, *util.Err) {
@@ -38,7 +40,7 @@ func NewClient(opt Option) (*Client, *util.Err) {
 	if err != nil {
 		return nil, err
 	}
-	m := opt.Head
+	m := opt.Data
 	if m == nil {
 		m = util.M{}
 	}
@@ -46,17 +48,25 @@ func NewClient(opt Option) (*Client, *util.Err) {
 
 	addr := fmt.Sprintf("%s:%d", opt.Ip, opt.Port)
 	client := &Client{
-		id:            opt.Id,
 		decoder:       opt.Decoder,
 		graph:         g,
 		msgToReceiver: make(map[kiwi.TSvcCode]*Receiver),
+		worker:        worker.NewFnWorker(16),
 	}
 	m.Set("client", client)
-	dialer := network.NewTcpDialer(opt.Name, addr, client.Receive,
-		kiwi.AgentHeadLen(opt.HeadLen),
-	)
+	var dialer kiwi.IDialer
+	switch opt.Type {
+	case "web":
+		dialer = network.NewWebDialer(addr, nil, 2, client.Receive)
+	case "tcp":
+		dialer = network.NewTcpDialer(opt.Name, addr, client.Receive,
+			kiwi.AgentHeadLen(opt.HeadLen),
+		)
+	default:
+		panic("unknown client type")
+	}
 	dialer.Agent().BindDisconnected(func(agent kiwi.IAgent, err *util.Err) {
-		kiwi.Info("disconnect", util.M{
+		kiwi.Info("disconnected", util.M{
 			"addr": agent.Addr(),
 		})
 	})
@@ -70,19 +80,16 @@ func NewClient(opt Option) (*Client, *util.Err) {
 		return nil, e
 	}
 	client.dialer = dialer
+	client.worker.Start()
 	return client, nil
 }
 
 type Client struct {
-	id            string
 	decoder       Decoder
 	dialer        kiwi.IDialer
 	graph         graph.IGraph
 	msgToReceiver map[kiwi.TSvcCode]*Receiver
-}
-
-func (c *Client) Id() string {
-	return c.id
+	worker        *worker.FnWorker
 }
 
 func (c *Client) Dialer() kiwi.IDialer {
@@ -107,7 +114,7 @@ func (c *Client) Receive(agent kiwi.IAgent, bytes []byte) {
 		})
 		return
 	}
-	point, data := receiver.Fn(c, pkt)
+	point, data := receiver.Fn(pkt)
 	if point == "" {
 		return
 	}
@@ -119,35 +126,48 @@ func (c *Client) Receive(agent kiwi.IAgent, bytes []byte) {
 		kiwi.Error(err)
 		return
 	}
-	worker.Share().Push(c.id, c.jobOut, nd, point, data)
+	c.worker.Push(c.jobOut, jobNodeOut{
+		node:  nd,
+		point: point,
+		data:  data,
+	})
 }
 
-func (c *Client) jobOut(params []any) {
-	nd, point, data := util.SplitSlc3[graph.INode, string, any](params)
-	kiwi.Error(nd.Out(point, data))
+type jobNodeOut struct {
+	node  graph.INode
+	point string
+	data  any
 }
 
-func (c *Client) Push(fn util.FnAnySlc, params ...any) {
-	worker.Share().Push(c.id, fn, params...)
+func (c *Client) jobOut(params any) {
+	job := params.(jobNodeOut)
+	kiwi.Error(job.node.Out(job.point, job.data))
+}
+
+func (c *Client) Do(fn util.FnAny, params any) {
+	c.worker.Push(fn, params)
 }
 
 func (c *Client) BindPointMsg(node, inPoint string, fn graph.MsgToErr) {
 	nd, err := c.graph.GetNode(node)
 	if err != nil {
-		kiwi.Error(err)
 		return
 	}
-	nd.BindFn(inPoint, func(msg graph.IMsg) *util.Err {
-		kiwi.Info("process:", msg.ToM())
-		return fn(msg)
-	})
+	nd.BindFn(inPoint, fn)
 }
 
-func (c *Client) BindNetMsg(node string, msg util.IMsg, receiver MsgToStrAny) {
+func (c *Client) BindNetMsg(msg util.IMsg, receiver MsgToStrAny) {
 	svc, mtd := kiwi.Codec().MsgToSvcCode(msg)
+	msgMethod := string(msg.ProtoReflect().Descriptor().Name())
+	msgMethod, _ = strings.CutSuffix(msgMethod, "Res")
+	msgMethod, _ = strings.CutSuffix(msgMethod, "Pus")
+	var words []string
+	util.SplitWords(msgMethod, &words)
+	point := strings.ToLower(words[0])
 	c.msgToReceiver[kiwi.MergeSvcCode(svc, mtd)] = &Receiver{
-		Node: node,
-		Fn:   receiver,
+		Node:  point,
+		Point: msgMethod,
+		Fn:    receiver,
 	}
 }
 
