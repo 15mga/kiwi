@@ -15,10 +15,9 @@ func (p *RcvReqPkt) Ok(msg util.IMsg) {
 	if !IsExcludeLog(p.svc, p.code) {
 		sndTs, _ := util.MGet[int64](p.head, HeadSndTs)
 		kiwi.TI(p.tid, "ok", util.M{
-			"dur":  time.Now().UnixMilli() - sndTs,
-			"name": p.msg.ProtoReflect().Descriptor().Name(),
-			"req":  p.msg,
-			"res":  msg,
+			"dur": time.Now().UnixMilli() - sndTs,
+			string(p.msg.ProtoReflect().Descriptor().Name()): p.msg,
+			string(msg.ProtoReflect().Descriptor().Name()):   msg,
 		})
 	}
 	p.Complete()
@@ -54,8 +53,7 @@ func (p *RcvReqPkt) Err(err *util.Err) {
 	}
 	sndTs, _ := util.MGet[int64](p.head, HeadSndTs)
 	err.AddParam("dur", time.Now().UnixMilli()-sndTs)
-	err.AddParam("name", p.msg.ProtoReflect().Descriptor().Name())
-	err.AddParam("req", p.msg)
+	err.AddParam(string(p.msg.ProtoReflect().Descriptor().Name()), p.msg)
 	p.rcvPkt.Err(err)
 	if p.senderId == kiwi.GetNodeMeta().NodeId {
 		kiwi.Router().OnResponseFail(p.tid, p.head, err.Code())
@@ -73,9 +71,8 @@ func (p *RcvReqPkt) Fail(code uint16) {
 	if !IsExcludeLog(p.svc, p.code) {
 		sndTs, _ := util.MGet[int64](p.head, HeadSndTs)
 		kiwi.TI(p.tid, "fail", util.M{
-			"dur":   time.Now().UnixMilli() - sndTs,
-			"name":  p.msg.ProtoReflect().Descriptor().Name(),
-			"req":   p.msg,
+			"dur": time.Now().UnixMilli() - sndTs,
+			string(p.msg.ProtoReflect().Descriptor().Name()): p.msg,
 			"error": util.ErrCodeToStr(code),
 		})
 	}

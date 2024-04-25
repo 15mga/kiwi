@@ -103,6 +103,7 @@ func (c *Client) Graph() graph.IGraph {
 func (c *Client) Receive(agent kiwi.IAgent, bytes []byte) {
 	svc, mtd, pkt, err := c.decoder(agent, bytes)
 	if err != nil {
+		err.AddParam("payload", string(bytes[2:]))
 		kiwi.Error(err)
 		return
 	}
@@ -114,6 +115,9 @@ func (c *Client) Receive(agent kiwi.IAgent, bytes []byte) {
 		})
 		return
 	}
+	kiwi.Debug("receiver", util.M{
+		string(pkt.ProtoReflect().Descriptor().Name()): pkt,
+	})
 	point, data := receiver.Fn(pkt)
 	if point == "" {
 		return
