@@ -10,6 +10,7 @@ import (
 )
 
 const (
+	EXISTS   = "EXISTS"   // HEXISTS 查看key是否存在
 	DEL      = "DEL"      // DEL 用于在key存在时删除key
 	DUMP     = "DUMP"     // DUMP 返回指定key序列化的值
 	EXIST    = "EXIST"    // EXIST key是否存在

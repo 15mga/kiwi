@@ -120,10 +120,6 @@ func (s *router) GetWatchCodes(svc kiwi.TSvc) ([]kiwi.TCode, bool) {
 func (s *router) OnNotice(pkt kiwi.IRcvNotice) {
 	handlerSlc, ok := s.notifyHandler[kiwi.MergeSvcCode(pkt.Svc(), pkt.Code())]
 	if !ok {
-		kiwi.TE2(pkt.Tid(), util.EcNotExist, util.M{
-			"service": pkt.Svc(),
-			"code":    pkt.Code(),
-		})
 		return
 	}
 	for _, handler := range handlerSlc {

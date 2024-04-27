@@ -12,14 +12,15 @@ import (
 )
 
 type option struct {
-	meta     *Meta
-	mongo    *Mongo
-	redis    *Redis
-	worker   Worker
-	node     kiwi.INode
-	services []kiwi.IService
-	gate     *Gate
-	loggers  []kiwi.ILogger
+	meta       *Meta
+	mongo      *Mongo
+	redis      *Redis
+	worker     Worker
+	node       kiwi.INode
+	services   []kiwi.IService
+	gate       *Gate
+	loggers    []kiwi.ILogger
+	afterStart func()
 }
 
 type Meta struct {
@@ -43,6 +44,12 @@ func SetLoggers(loggers ...kiwi.ILogger) Option {
 func SetServices(services []kiwi.IService) Option {
 	return func(o *option) {
 		o.services = services
+	}
+}
+
+func SetAfter(after func()) Option {
+	return func(o *option) {
+		o.afterStart = after
 	}
 }
 
@@ -187,6 +194,10 @@ func StartDefault(opts ...Option) {
 		if err != nil {
 			kiwi.Fatal(err)
 		}
+	}
+
+	if opt.afterStart != nil {
+		opt.afterStart()
 	}
 
 	kiwi.WaitExit()

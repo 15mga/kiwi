@@ -13,10 +13,11 @@ import (
 )
 
 var (
-	_Client   *mongo.Client
-	_Db       *mongo.Database
-	_Coll     = make(map[string]*mongo.Collection)
-	_IdxModel = make(map[string]func() []mongo.IndexModel)
+	_Client    *mongo.Client
+	_Db        *mongo.Database
+	_Coll      = make(map[string]*mongo.Collection)
+	_IdxModel  = make(map[string]func() []mongo.IndexModel)
+	_ExistColl = make(map[string]struct{})
 )
 
 func Client() *mongo.Client {
@@ -62,6 +63,11 @@ func InitColl(coll string, idxModel func() []mongo.IndexModel, opts ...*options.
 	}
 }
 
+func ExistColl(coll string) bool {
+	_, ok := _ExistColl[coll]
+	return ok
+}
+
 func CheckColl() *util.Err {
 	names, e := _Db.ListCollectionNames(context.TODO(), nil)
 	if e != nil && !errors.Is(e, mongo.ErrNilDocument) {
@@ -72,6 +78,7 @@ func CheckColl() *util.Err {
 	m := make(map[string]struct{}, len(names))
 	for name, coll := range _Coll {
 		if _, ok := m[name]; ok {
+			_ExistColl[name] = struct{}{}
 			continue
 		}
 		fn, ok := _IdxModel[name]
@@ -86,7 +93,7 @@ func CheckColl() *util.Err {
 		if e != nil {
 			return util.NewErr(util.EcDbErr, util.M{
 				"schema": name,
-				"error": e.Error(),
+				"error":  e.Error(),
 			})
 		}
 	}
@@ -234,23 +241,18 @@ func FindOneAndDel(coll string, filter any, item any, opts ...*options.FindOneAn
 	return Coll(coll).FindOneAndDelete(context.TODO(), filter, opts...).Decode(item)
 }
 
-func Tx(sessionOpt *options.SessionOptions, txOpt *options.TransactionOptions,
-	fn util.ToErr) *util.Err {
-	session, e := _Client.StartSession(sessionOpt)
+func Tx(fn func(mongo.SessionContext) error) *util.Err {
+	session, e := _Client.StartSession()
 	if e != nil {
 		return util.WrapErr(util.EcDbErr, e)
 	}
 	defer session.EndSession(context.TODO())
 
-	e = session.StartTransaction(txOpt)
+	e = session.StartTransaction()
 	if e != nil {
 		return util.WrapErr(util.EcDbErr, e)
 	}
-	err := fn()
-	if err != nil {
-		_ = session.AbortTransaction(context.TODO())
-		return err
-	}
+	mongo.WithSession(context.TODO(), session, fn)
 	e = session.CommitTransaction(context.TODO())
 	if e != nil {
 		return util.WrapErr(util.EcDbErr, e)
