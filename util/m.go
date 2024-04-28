@@ -187,7 +187,7 @@ func (m M) ToSlice(slc *[]any) {
 	}
 }
 
-func (m M) Copy(toM M) M {
+func (m M) Copy() M {
 	n := make(M, len(m))
 	for k, v := range m {
 		n[k] = v

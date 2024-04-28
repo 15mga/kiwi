@@ -112,7 +112,7 @@ func (r *SRequest) Error(err *util.Err) {
 }
 
 func (r *SRequest) timeout() {
-	kiwi.TE2(r.tid, util.EcTimeout, r.head)
+	kiwi.TE2(r.tid, util.EcTimeout, r.head.Copy())
 }
 
 func (r *SRequest) isDisposed() bool {
@@ -323,10 +323,10 @@ func AsyncReqNodeBytes(pid, nodeId int64, svc kiwi.TSvc, code kiwi.TCode, head u
 	kiwi.Node().RequestNode(nodeId, req)
 }
 
-func AsyncSubReq[ResT util.IMsg](pkt kiwi.IRcvRequest, head util.M, req util.IMsg, resFail util.FnInt64MUint16, resOk func(int64, util.M, ResT)) {
+func AsyncSubReq[ResT util.IMsg](pkt kiwi.IRcvRequest, req util.IMsg, resFail util.FnInt64MUint16, resOk func(int64, util.M, ResT)) {
 	switch pkt.Worker() {
 	case kiwi.EWorkerGo:
-		AsyncReq(pkt.Tid(), head, req, func(tid int64, head util.M, code uint16) {
+		AsyncReq(pkt.Tid(), pkt.Head().Copy(), req, func(tid int64, head util.M, code uint16) {
 			if resFail == nil {
 				return
 			}
@@ -353,7 +353,7 @@ func AsyncSubReq[ResT util.IMsg](pkt kiwi.IRcvRequest, head util.M, req util.IMs
 			}
 		})
 	case kiwi.EWorkerActive:
-		AsyncReq(pkt.Tid(), head, req, func(tid int64, head util.M, code uint16) {
+		AsyncReq(pkt.Tid(), pkt.Head().Copy(), req, func(tid int64, head util.M, code uint16) {
 			if resFail == nil {
 				return
 			}
@@ -376,7 +376,7 @@ func AsyncSubReq[ResT util.IMsg](pkt kiwi.IRcvRequest, head util.M, req util.IMs
 			}
 		})
 	case kiwi.EWorkerShare:
-		AsyncReq(pkt.Tid(), head, req, func(tid int64, head util.M, code uint16) {
+		AsyncReq(pkt.Tid(), pkt.Head().Copy(), req, func(tid int64, head util.M, code uint16) {
 			if resFail == nil {
 				return
 			}
@@ -399,7 +399,7 @@ func AsyncSubReq[ResT util.IMsg](pkt kiwi.IRcvRequest, head util.M, req util.IMs
 			}
 		})
 	case kiwi.EWorkerGlobal:
-		AsyncReq(pkt.Tid(), head, req, func(tid int64, head util.M, code uint16) {
+		AsyncReq(pkt.Tid(), pkt.Head().Copy(), req, func(tid int64, head util.M, code uint16) {
 			if resFail == nil {
 				return
 			}
@@ -422,7 +422,7 @@ func AsyncSubReq[ResT util.IMsg](pkt kiwi.IRcvRequest, head util.M, req util.IMs
 			}
 		})
 	case kiwi.EWorkerSelf:
-		AsyncReq(pkt.Tid(), head, req, func(tid int64, head util.M, code uint16) {
+		AsyncReq(pkt.Tid(), pkt.Head().Copy(), req, func(tid int64, head util.M, code uint16) {
 			if resFail == nil {
 				return
 			}
