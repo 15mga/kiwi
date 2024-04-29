@@ -12,8 +12,7 @@ type IGraph interface {
 	Plugin() IPlugin
 	SetPlugin(plugin IPlugin)
 	Start() *util.Err
-	AddNode(name string) (INode, *util.Err)
-	GetNode(name string) (INode, *util.Err)
+	GetNode(name string) INode
 	GetNodeByPath(names ...string) (INode, *util.Err)
 	FindNode(name string) (INode, bool)
 	FindNodes(name string, nodes *[]INode)
@@ -105,31 +104,18 @@ func (g *graph) Start() *util.Err {
 	return nil
 }
 
-func (g *graph) AddNode(name string) (INode, *util.Err) {
-	_, ok := g.nameToNode[name]
+func (g *graph) GetNode(name string) INode {
+	n, ok := g.nameToNode[name]
 	if ok {
-		return nil, util.NewErr(util.EcExist, util.M{
-			"node name": name,
-			"graph":     g.Name(),
-		})
+		return n
 	}
+
 	nd := NewNode(g, name)
 	g.nameToNode[name] = nd
 	if g.option.plugin != nil {
 		g.option.plugin.OnAddNode(g, nd)
 	}
-	return nd, nil
-}
-
-func (g *graph) GetNode(name string) (INode, *util.Err) {
-	n, ok := g.nameToNode[name]
-	if ok {
-		return n, nil
-	}
-	return nil, util.NewErr(util.EcNotExist, util.M{
-		"node name": name,
-		"graph":     g.Name(),
-	})
+	return nd
 }
 
 func (g *graph) GetNodeByPath(names ...string) (INode, *util.Err) {
@@ -137,7 +123,7 @@ func (g *graph) GetNodeByPath(names ...string) (INode, *util.Err) {
 	case 0:
 		return nil, util.NewErr(util.EcLengthErr, nil)
 	case 1:
-		return g.GetNode(names[0])
+		return g.GetNode(names[0]), nil
 	default:
 		sgn := names[0]
 		sg, ok := g.nameToGraph[sgn]
@@ -196,22 +182,14 @@ func (g *graph) Link(outNode, outPoint, inNode, inPoint string) (ILink, *util.Er
 		})
 	}
 
-	on, err := g.GetNode(outNode)
-	if err != nil {
-		err.AddParam("graph", g.Name())
-		return nil, err
-	}
+	on := g.GetNode(outNode)
 	op, err := on.GetOut(outPoint)
 	if err != nil {
 		err.AddParam("graph", g.Name())
 		return nil, err
 	}
 
-	in, err := g.GetNode(inNode)
-	if err != nil {
-		err.AddParam("graph", g.Name())
-		return nil, err
-	}
+	in := g.GetNode(inNode)
 	ip, err := in.GetIn(inPoint)
 	if err != nil {
 		err.AddParam("graph", g.Name())
@@ -320,10 +298,7 @@ func NewGraphWithConf(conf Conf, opts ...Option) IGraph {
 }
 
 func AddNodeWithConf(g IGraph, conf NodeConf) (INode, *util.Err) {
-	n, err := g.AddNode(conf.Name)
-	if err != nil {
-		return nil, err
-	}
+	n := g.GetNode(conf.Name)
 	n.SetComment(conf.Comment)
 	if conf.M != nil {
 		n.SetData(conf.M)

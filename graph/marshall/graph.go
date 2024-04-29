@@ -82,11 +82,7 @@ func (g *Graph) unmarshal(grp graph.IGraph, reader *bufio.Reader, ns, ls, ls2 *r
 		//节点
 		slc := ns.Split(line, -1)
 		slc = filterEmptyItem(slc)
-		nd, err := grp.AddNode(slc[0])
-		if err != nil {
-			kiwi.Error(err)
-			continue
-		}
+		nd := grp.GetNode(slc[0])
 		if len(slc) == 2 {
 			nd.SetComment(slc[1])
 		}
@@ -112,23 +108,15 @@ func (g *Graph) unmarshal(grp graph.IGraph, reader *bufio.Reader, ns, ls, ls2 *r
 				"link": slc[1],
 			})
 		}
-		outNode, err := grp.GetNode(on)
-		if err != nil {
-			kiwi.Error(err)
-			continue
-		}
-		inNode, err := grp.GetNode(in)
-		if err != nil {
-			kiwi.Error(err)
-			continue
-		}
+		outNode := grp.GetNode(on)
+		inNode := grp.GetNode(in)
 		if !outNode.HasOut(op) {
 			_ = outNode.AddOut(t, op)
 		}
 		if !inNode.HasIn(ip) {
 			_ = inNode.AddIn(t, ip)
 		}
-		_, err = grp.Link(on, op, in, ip)
+		_, err := grp.Link(on, op, in, ip)
 		if err != nil {
 			kiwi.Error(err)
 		}

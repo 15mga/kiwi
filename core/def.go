@@ -3,6 +3,7 @@ package core
 import (
 	"github.com/15mga/kiwi"
 	"github.com/15mga/kiwi/log"
+	"github.com/15mga/kiwi/util"
 	"github.com/15mga/kiwi/util/mgo"
 	"github.com/15mga/kiwi/util/rds"
 	"github.com/15mga/kiwi/worker"
@@ -12,26 +13,34 @@ import (
 )
 
 type option struct {
-	meta       *Meta
-	mongo      *Mongo
-	redis      *Redis
-	worker     Worker
-	node       kiwi.INode
-	services   []kiwi.IService
-	gate       *Gate
-	loggers    []kiwi.ILogger
-	afterStart func()
+	getNodeId   util.ToInt64
+	getServices func() map[kiwi.TSvc]string
+	strToSvc    func(string) kiwi.TSvc
+	mongo       *Mongo
+	redis       *Redis
+	worker      Worker
+	node        kiwi.INode
+	services    []kiwi.IService
+	gate        *Gate
+	loggers     []kiwi.ILogger
+	afterStart  func()
 }
 
-type Meta struct {
-	Id          int64
-	SvcToVer    map[kiwi.TSvc]string
-	SvcNameConv func(string) kiwi.TSvc
-}
-
-func SetMeta(meta *Meta) Option {
+func SetGetNodeId(fn util.ToInt64) Option {
 	return func(o *option) {
-		o.meta = meta
+		o.getNodeId = fn
+	}
+}
+
+func SetGetServices(fn func() map[kiwi.TSvc]string) Option {
+	return func(o *option) {
+		o.getServices = fn
+	}
+}
+
+func SetStrToSvc(fn func(string) kiwi.TSvc) Option {
+	return func(o *option) {
+		o.strToSvc = fn
 	}
 }
 
@@ -129,7 +138,7 @@ func StartDefault(opts ...Option) {
 			parallel: true,
 			global:   true,
 		},
-		node: NewNodeLocal(),
+		node: NewNodeNet(),
 		loggers: []kiwi.ILogger{
 			log.NewStd(),
 		},
@@ -145,9 +154,8 @@ func StartDefault(opts ...Option) {
 	}
 
 	nodeMeta := kiwi.GetNodeMeta()
-	nodeMeta.Init(opt.meta.Id)
-	for svc, conf := range opt.meta.SvcToVer {
-		nodeMeta.AddService(svc, conf)
+	for svc, ver := range opt.getServices() {
+		nodeMeta.AddService(svc, ver)
 	}
 
 	if opt.mongo != nil {
@@ -187,6 +195,7 @@ func StartDefault(opts ...Option) {
 	if opt.gate != nil {
 		InitGate(opt.gate.receiver, opt.gate.options...)
 	}
+	nodeMeta.Init(opt.getNodeId())
 	StartAllService()
 
 	if opt.mongo != nil {

@@ -35,10 +35,12 @@ type Option struct {
 
 func NewClient(opt Option) (*Client, *util.Err) {
 	g := graph.NewGraph("client")
-	var ug marshall.Graph
-	err := ug.Unmarshall(opt.Mermaid, g)
-	if err != nil {
-		return nil, err
+	if opt.Mermaid != nil {
+		var ug marshall.Graph
+		err := ug.Unmarshall(opt.Mermaid, g)
+		if err != nil {
+			return nil, err
+		}
 	}
 	m := opt.Data
 	if m == nil {
@@ -125,11 +127,7 @@ func (c *Client) Receive(agent kiwi.IAgent, bytes []byte) {
 	if data == nil {
 		data = struct{}{}
 	}
-	nd, err := c.graph.GetNode(receiver.Node)
-	if err != nil {
-		kiwi.Error(err)
-		return
-	}
+	nd := c.graph.GetNode(receiver.Node)
 	c.worker.Push(c.jobOut, jobNodeOut{
 		node:  nd,
 		point: point,
@@ -152,25 +150,65 @@ func (c *Client) Do(fn util.FnAny, params any) {
 	c.worker.Push(fn, params)
 }
 
-func (c *Client) BindPointMsg(node, inPoint string, fn graph.MsgToErr) {
-	nd, err := c.graph.GetNode(node)
-	if err != nil {
-		return
+func (c *Client) MsgToNodeAndPoint(msg util.IMsg) (node, point string) {
+	point = string(msg.ProtoReflect().Descriptor().Name())
+	point = point[:len(point)-3]
+	//point, _ = strings.CutSuffix(point, "Res")
+	//point, _ = strings.CutSuffix(point, "Req")
+	//point, _ = strings.CutSuffix(point, "Pus")
+	var words []string
+	util.SplitWords(point, &words)
+	node = strings.ToLower(words[0])
+	return
+}
+
+func (c *Client) Link(out, in util.IMsg) (graph.ILink, *util.Err) {
+	outNode, outPoint := c.MsgToNodeAndPoint(out)
+	op := c.graph.GetNode(outNode)
+	if !op.HasOut(outPoint) {
+		_ = op.AddOut("nil", outPoint)
 	}
-	nd.BindFn(inPoint, fn)
+	inNode, inPoint := c.MsgToNodeAndPoint(in)
+	ip := c.graph.GetNode(inNode)
+	if !ip.HasIn(inPoint) {
+		_ = ip.AddIn("nil", inPoint)
+	}
+	return c.graph.Link(outNode, outPoint, inNode, inPoint)
+}
+
+func (c *Client) BindReqDecorator(msg util.IMsg, decorator func(*Client, util.IMsg)) {
+	_, point := c.MsgToNodeAndPoint(msg)
+	c.graph.Data().Set(point+"Decorator", decorator)
+}
+
+func (c *Client) DecorateReq(req util.IMsg) {
+	_, point := c.MsgToNodeAndPoint(req)
+	fn, ok := util.MGet[func(*Client, util.IMsg)](c.Graph().Data(), point+"Decorator")
+	if ok && fn != nil {
+		fn(c, req)
+	}
+}
+
+//func (c *Client) Req(req util.IMsg) *util.Err {
+//	kiwi.Debug("request", util.M{string(req.ProtoReflect().Descriptor().Name()): req})
+//	svc, code := kiwi.Codec().MsgToSvcCode(req)
+//	bytes, err := common.PackUserReq(svc, code, req)
+//	if err != nil {
+//		return err
+//	}
+//	return s.client.Dialer().Agent().Send(bytes)
+//}
+
+func (c *Client) BindPointMsg(node, inPoint string, fn graph.MsgToErr) {
+	c.graph.GetNode(node).BindFn(inPoint, fn)
 }
 
 func (c *Client) BindNetMsg(msg util.IMsg, receiver MsgToStrAny) {
+	node, point := c.MsgToNodeAndPoint(msg)
 	svc, mtd := kiwi.Codec().MsgToSvcCode(msg)
-	msgMethod := string(msg.ProtoReflect().Descriptor().Name())
-	msgMethod, _ = strings.CutSuffix(msgMethod, "Res")
-	msgMethod, _ = strings.CutSuffix(msgMethod, "Pus")
-	var words []string
-	util.SplitWords(msgMethod, &words)
-	point := strings.ToLower(words[0])
 	c.msgToReceiver[kiwi.MergeSvcCode(svc, mtd)] = &Receiver{
-		Node:  point,
-		Point: msgMethod,
+		Node:  node,
+		Point: point,
 		Fn:    receiver,
 	}
 }
