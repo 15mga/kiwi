@@ -127,6 +127,11 @@ func (s *router) OnNotice(pkt kiwi.IRcvNotice) {
 	}
 }
 
+func (s *router) HasNoticeWatcher(svc kiwi.TSvc, code kiwi.TCode) bool {
+	_, ok := s.notifyHandler[kiwi.MergeSvcCode(svc, code)]
+	return ok
+}
+
 func ActivePrcPus[Pus util.IMsg](pkt kiwi.IRcvPush, key string, handler func(kiwi.IRcvPush, Pus)) {
 	pkt.SetWorker(kiwi.EWorkerActive, key)
 	worker.Active().Push(key, func(_ any) {

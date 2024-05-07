@@ -46,6 +46,12 @@ func StartAllService() {
 	})
 }
 
+func AfterStartAllService() {
+	_Services.Iter(func(service kiwi.IService) {
+		service.AfterStart()
+	})
+}
+
 func ShutdownAllService() {
 	_Services.Iter(func(service kiwi.IService) {
 		service.Shutdown()

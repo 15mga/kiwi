@@ -205,6 +205,8 @@ func StartDefault(opts ...Option) {
 		}
 	}
 
+	AfterStartAllService()
+
 	if opt.afterStart != nil {
 		opt.afterStart()
 	}

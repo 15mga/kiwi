@@ -31,4 +31,5 @@ type IRouter interface {
 	WatchNotice(msg util.IMsg, handler NotifyHandler)
 	GetWatchCodes(svc TSvc) ([]TCode, bool)
 	OnNotice(pkt IRcvNotice)
+	HasNoticeWatcher(svc TSvc, code TCode) bool
 }

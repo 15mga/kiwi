@@ -31,15 +31,40 @@ func (n *nodeBase) PushNode(nodeId int64, pus kiwi.ISndPush) {
 }
 
 func (n *nodeBase) Request(req kiwi.ISndRequest) {
-	panic("implement me")
+	pkt := NewRcvReqPkt()
+	msg := req.Msg()
+	if msg != nil {
+		pkt.InitWithMsg(HdRequest, req.Tid(), req.Head(), req.Json(), req.Msg())
+	} else {
+		err := pkt.InitWithBytes(HdRequest, req.Tid(), req.Head(), req.Json(), req.Payload())
+		if err != nil {
+			kiwi.Error(err)
+			return
+		}
+	}
+	kiwi.Router().OnRequest(pkt)
 }
 
 func (n *nodeBase) RequestNode(nodeId int64, req kiwi.ISndRequest) {
 	panic("implement me")
 }
 
-func (n *nodeBase) Notify(ntf kiwi.ISndNotice) {
-	panic("implement me")
+func (n *nodeBase) Notify(ntc kiwi.ISndNotice, filter util.MToBool) {
+	if !kiwi.Router().HasNoticeWatcher(ntc.Svc(), ntc.Code()) {
+		return
+	}
+	pkt := NewRcvNtfPkt()
+	msg := ntc.Msg()
+	if msg != nil {
+		pkt.InitWithMsg(HdNotify, ntc.Tid(), ntc.Head(), ntc.Json(), ntc.Msg())
+	} else {
+		err := pkt.InitWithBytes(HdNotify, ntc.Tid(), ntc.Head(), ntc.Json(), ntc.Payload())
+		if err != nil {
+			kiwi.Error(err)
+			return
+		}
+	}
+	kiwi.Router().OnNotice(pkt)
 }
 
 func (n *nodeBase) ReceiveWatchNotice(nodeId int64, codes []kiwi.TCode, meta util.M) {

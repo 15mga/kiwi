@@ -174,24 +174,9 @@ func (n *nodeNet) PushNode(nodeId int64, pus kiwi.ISndPush) {
 	n.worker.Push(nodeJobPusNode{nodeId, pus})
 }
 
-func (n *nodeNet) requestSelf(req kiwi.ISndRequest) {
-	pkt := NewRcvReqPkt()
-	msg := req.Msg()
-	if msg != nil {
-		pkt.InitWithMsg(HdRequest, req.Tid(), req.Head(), req.Json(), req.Msg())
-	} else {
-		err := pkt.InitWithBytes(HdRequest, req.Tid(), req.Head(), req.Json(), req.Payload())
-		if err != nil {
-			kiwi.Error(err)
-			return
-		}
-	}
-	kiwi.Router().OnRequest(pkt)
-}
-
 func (n *nodeNet) Request(req kiwi.ISndRequest) {
 	if kiwi.GetNodeMeta().HasService(req.Svc()) {
-		n.requestSelf(req)
+		n.nodeBase.Request(req)
 		return
 	}
 	n.worker.Push(req)
@@ -199,13 +184,14 @@ func (n *nodeNet) Request(req kiwi.ISndRequest) {
 
 func (n *nodeNet) RequestNode(nodeId int64, req kiwi.ISndRequest) {
 	if nodeId == kiwi.GetNodeMeta().NodeId {
-		n.requestSelf(req)
+		n.nodeBase.Request(req)
 		return
 	}
 	n.worker.Push(nodeJobReqNode{nodeId, req})
 }
 
 func (n *nodeNet) Notify(ntc kiwi.ISndNotice, filter util.MToBool) {
+	n.nodeBase.Notify(ntc, filter)
 	n.worker.Push(nodeJobSendNotice{ntc, filter})
 }
 

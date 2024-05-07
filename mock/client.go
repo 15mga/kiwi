@@ -31,6 +31,8 @@ type Option struct {
 	Data    util.M
 	HeadLen int
 	Type    string
+	MsgLink map[util.IMsg]util.IMsg
+	MsgSlc  []util.IMsg
 }
 
 func NewClient(opt Option) (*Client, *util.Err) {
@@ -82,6 +84,31 @@ func NewClient(opt Option) (*Client, *util.Err) {
 		return nil, e
 	}
 	client.dialer = dialer
+
+	//初始化节点链接
+	_ = client.Graph().GetNode("start").AddOut("nil", "start")
+	_ = client.Graph().GetNode("over").AddIn("nil", "over")
+	if len(opt.MsgSlc) > 0 {
+		fn, fp := client.MsgToNodeAndPoint(opt.MsgSlc[0])
+		ln, lp := client.MsgToNodeAndPoint(opt.MsgSlc[len(opt.MsgSlc)-1])
+		_ = client.Graph().GetNode(fn).AddIn("nil", fp)
+		_ = client.Graph().GetNode(ln).AddOut("nil", lp)
+		_, _ = client.Graph().Link("start", "start", fn, fp)
+		_, _ = client.Graph().Link(ln, lp, "over", "over")
+	}
+
+	if len(opt.MsgLink) > 0 {
+		for outSc, inSc := range opt.MsgLink {
+			_, _ = client.Link(outSc, inSc)
+		}
+	}
+
+	for _, msg := range opt.MsgSlc {
+		msgName := string(msg.ProtoReflect().Descriptor().Name())
+		msgName, _ = strings.CutSuffix(msgName, "Req")
+		m[msgName] = msg
+	}
+
 	client.worker.Start()
 	return client, nil
 }
@@ -102,6 +129,13 @@ func (c *Client) Graph() graph.IGraph {
 	return c.graph
 }
 
+func (c *Client) Start() {
+	c.Do(func(a any) {
+		node := c.Graph().GetNode("start")
+		_ = node.Out("start", nil)
+	}, nil)
+}
+
 func (c *Client) Receive(agent kiwi.IAgent, bytes []byte) {
 	svc, mtd, pkt, err := c.decoder(agent, bytes)
 	if err != nil {
@@ -109,6 +143,9 @@ func (c *Client) Receive(agent kiwi.IAgent, bytes []byte) {
 		kiwi.Error(err)
 		return
 	}
+	kiwi.Debug("receiver", util.M{
+		string(pkt.ProtoReflect().Descriptor().Name()): pkt,
+	})
 	receiver, ok := c.msgToReceiver[kiwi.MergeSvcCode(svc, mtd)]
 	if !ok {
 		kiwi.Error2(util.EcNotExist, util.M{
@@ -117,9 +154,6 @@ func (c *Client) Receive(agent kiwi.IAgent, bytes []byte) {
 		})
 		return
 	}
-	kiwi.Debug("receiver", util.M{
-		string(pkt.ProtoReflect().Descriptor().Name()): pkt,
-	})
 	point, data := receiver.Fn(pkt)
 	if point == "" {
 		return
@@ -143,7 +177,7 @@ type jobNodeOut struct {
 
 func (c *Client) jobOut(params any) {
 	job := params.(jobNodeOut)
-	kiwi.Error(job.node.Out(job.point, job.data))
+	_ = job.node.Out(job.point, job.data)
 }
 
 func (c *Client) Do(fn util.FnAny, params any) {
