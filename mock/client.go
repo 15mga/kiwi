@@ -31,7 +31,6 @@ type Option struct {
 	Data    util.M
 	HeadLen int
 	Type    string
-	MsgLink map[util.IMsg]util.IMsg
 	MsgSlc  []util.IMsg
 }
 
@@ -88,18 +87,20 @@ func NewClient(opt Option) (*Client, *util.Err) {
 	//初始化节点链接
 	_ = client.Graph().GetNode("start").AddOut("nil", "start")
 	_ = client.Graph().GetNode("over").AddIn("nil", "over")
-	if len(opt.MsgSlc) > 0 {
+	msgLen := len(opt.MsgSlc)
+	if msgLen > 0 {
 		fn, fp := client.MsgToNodeAndPoint(opt.MsgSlc[0])
 		ln, lp := client.MsgToNodeAndPoint(opt.MsgSlc[len(opt.MsgSlc)-1])
 		_ = client.Graph().GetNode(fn).AddIn("nil", fp)
 		_ = client.Graph().GetNode(ln).AddOut("nil", lp)
 		_, _ = client.Graph().Link("start", "start", fn, fp)
 		_, _ = client.Graph().Link(ln, lp, "over", "over")
-	}
-
-	if len(opt.MsgLink) > 0 {
-		for outSc, inSc := range opt.MsgLink {
-			_, _ = client.Link(outSc, inSc)
+		if msgLen > 1 {
+			for i := 1; i < msgLen; i++ {
+				outSc := opt.MsgSlc[i-1]
+				inSc := opt.MsgSlc[i]
+				_, _ = client.Link(outSc, inSc)
+			}
 		}
 	}
 

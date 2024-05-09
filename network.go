@@ -20,12 +20,14 @@ type IAgent interface {
 	SetHeads(m util.M)
 	GetHead(key string) (any, bool)
 	DelHead(keys ...string)
+	ClearHead()
 	CopyHead(m util.M)
 	SetCache(key string, val any)
 	SetCaches(m util.M)
 	GetCache(key string) (any, bool)
 	DelCache(keys ...string)
 	CopyCache(m util.M)
+	ClearCache()
 	Id() string
 	SetId(id string)
 	Addr() string

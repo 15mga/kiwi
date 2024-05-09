@@ -211,6 +211,9 @@ func StartDefault(opts ...Option) {
 		opt.afterStart()
 	}
 
+	kiwi.BeforeExitFn("shutdown all service", func() {
+		ShutdownAllService()
+	})
 	kiwi.WaitExit()
 }
 

@@ -1,6 +1,7 @@
 package network
 
 import (
+	"errors"
 	"github.com/15mga/kiwi"
 	"github.com/15mga/kiwi/util"
 	"github.com/fasthttp/websocket"
@@ -75,12 +76,17 @@ func (l *webListener) Start() *util.Err {
 	kiwi.Info("start websocket listener", util.M{
 		"addr": l.option.addr,
 	})
-	http.HandleFunc("/", l.handler)
 
+	l.server = &http.Server{
+		Addr:    l.option.addr,
+		Handler: http.HandlerFunc(l.handler),
+	}
 	go func() {
-		e := http.ListenAndServe(l.option.addr, nil)
+		e := l.server.ListenAndServe()
 		if e != nil {
-			panic(e)
+			if !errors.Is(e, http.ErrServerClosed) {
+				panic(e)
+			}
 		}
 	}()
 	return nil

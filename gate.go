@@ -27,8 +27,12 @@ type IGate interface {
 	MultiSend(tid int64, idToPayload map[string][]byte, handler util.FnMapBool)
 	MultiAddrSend(tid int64, addrToPayload map[string][]byte, handler util.FnMapBool)
 	AllSend(tid int64, bytes []byte)
-	CloseWithId(tid int64, id string, removeHeadKeys, removeCacheKeys []string)
-	CloseWithAddr(tid int64, addr string, removeHeadKeys, removeCacheKeys []string)
+	// CloseWithId 关闭并清理会话
+	CloseWithId(tid int64, id string)
+	// CloseWithAddr 关闭并清理会话
+	CloseWithAddr(tid int64, addr string)
+	// DisconnectAll 断开所有链接，不清空会话，允许发起重连，用于网关主动断开
+	DisconnectAll(tid int64)
 	UpdateHeadCache(tid int64, id string, head, cache util.M, handler util.FnBool)
 	UpdateAddrHeadCache(tid int64, addr string, head, cache util.M, handler util.FnBool)
 	RemoveHeadCache(tid int64, addr string, head, cache []string, handler util.FnBool)

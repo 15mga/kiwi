@@ -349,12 +349,16 @@ func (g *gate) GetAddrHeadCache(tid int64, id string, fn util.FnM2Bool) {
 	g.worker.Push(gateJobAddrGet{tid, id, fn})
 }
 
-func (g *gate) CloseWithId(tid int64, id string, removeHeadKeys, removeCacheKeys []string) {
-	g.worker.Push(gateJobClose{tid, id, removeHeadKeys, removeCacheKeys})
+func (g *gate) CloseWithId(tid int64, id string) {
+	g.worker.Push(gateJobClose{tid, id})
 }
 
-func (g *gate) CloseWithAddr(tid int64, addr string, removeHeadKeys, removeCacheKeys []string) {
-	g.worker.Push(gateJobAddrClose{tid, addr, removeHeadKeys, removeCacheKeys})
+func (g *gate) CloseWithAddr(tid int64, addr string) {
+	g.worker.Push(gateJobAddrClose{tid, addr})
+}
+
+func (g *gate) DisconnectAll(tid int64) {
+	g.worker.Push(gateJobAllDisconnect{tid})
 }
 
 func (g *gate) SetRoles(m map[kiwi.TSvcCode][]int64) {
@@ -586,17 +590,21 @@ func (g *gate) process(data any) {
 		if !ok {
 			return
 		}
-		agent.DelHead(d.head...)
-		agent.DelCache(d.cache...)
+		agent.ClearHead()
+		agent.ClearCache()
 		agent.Dispose()
 	case gateJobAddrClose:
 		agent, ok := g.addrToAgent.Get(d.addr)
 		if !ok {
 			return
 		}
-		agent.DelHead(d.head...)
-		agent.DelCache(d.cache...)
+		agent.ClearHead()
+		agent.ClearCache()
 		agent.Dispose()
+	case gateJobAllDisconnect:
+		for _, agent := range g.addrToAgent.Values() {
+			agent.Dispose()
+		}
 	}
 }
 
@@ -685,15 +693,15 @@ type gateJobAddrGet struct {
 }
 
 type gateJobClose struct {
-	tid   int64
-	id    string
-	head  []string
-	cache []string
+	tid int64
+	id  string
 }
 
 type gateJobAddrClose struct {
-	tid   int64
-	addr  string
-	head  []string
-	cache []string
+	tid  int64
+	addr string
+}
+
+type gateJobAllDisconnect struct {
+	tid int64
 }

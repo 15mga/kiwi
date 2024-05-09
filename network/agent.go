@@ -100,6 +100,12 @@ func (a *agent) DelHead(keys ...string) {
 	a.mtx.Unlock()
 }
 
+func (a *agent) ClearHead() {
+	a.mtx.Lock()
+	a.head = util.M{}
+	a.mtx.Unlock()
+}
+
 func (a *agent) CopyHead(m util.M) {
 	if m == nil {
 		return
@@ -145,6 +151,12 @@ func (a *agent) CopyCache(m util.M) {
 	for key, val := range a.cache {
 		m[key] = val
 	}
+	a.mtx.Unlock()
+}
+
+func (a *agent) ClearCache() {
+	a.mtx.Lock()
+	a.cache = util.M{}
 	a.mtx.Unlock()
 }
 
