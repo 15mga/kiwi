@@ -88,9 +88,13 @@ func (r *SRequest) Ok(head util.M, msg util.IMsg) {
 			r.Error(err)
 			return
 		}
-		r.okBytes(r.tid, head, bytes)
+		if r.okBytes != nil {
+			r.okBytes(r.tid, head, bytes)
+		}
 	} else {
-		r.okMsg(r.tid, head, msg)
+		if r.okMsg != nil {
+			r.okMsg(r.tid, head, msg)
+		}
 	}
 }
 
@@ -339,6 +343,9 @@ func AsyncSubReq[ResT util.IMsg](pkt kiwi.IRcvRequest, req util.IMsg, resFail ut
 				kiwi.TE3(pkt.Tid(), util.EcServiceErr, e)
 			}
 		}, func(tid int64, head util.M, msg util.IMsg) {
+			if resOk == nil {
+				return
+			}
 			res, ok := msg.(ResT)
 			if ok {
 				e := ants.Submit(func() {
@@ -364,6 +371,9 @@ func AsyncSubReq[ResT util.IMsg](pkt kiwi.IRcvRequest, req util.IMsg, resFail ut
 				resFail(d.tid, d.m, d.code)
 			}, sndReqJobActiveFail{tid, head, code})
 		}, func(tid int64, head util.M, msg util.IMsg) {
+			if resOk == nil {
+				return
+			}
 			res, ok := msg.(ResT)
 			if ok {
 				worker.Active().Push(pkt.WorkerKey(), func(data any) {
@@ -387,6 +397,9 @@ func AsyncSubReq[ResT util.IMsg](pkt kiwi.IRcvRequest, req util.IMsg, resFail ut
 				resFail(d.tid, d.m, d.code)
 			}, sndReqJobActiveFail{tid, head, code})
 		}, func(tid int64, head util.M, msg util.IMsg) {
+			if resOk == nil {
+				return
+			}
 			res, ok := msg.(ResT)
 			if ok {
 				worker.Share().Push(pkt.WorkerKey(), func(data any) {
@@ -410,6 +423,9 @@ func AsyncSubReq[ResT util.IMsg](pkt kiwi.IRcvRequest, req util.IMsg, resFail ut
 				resFail(d.tid, d.m, d.code)
 			}, sndReqJobActiveFail{tid, head, code})
 		}, func(tid int64, head util.M, msg util.IMsg) {
+			if resOk == nil {
+				return
+			}
 			res, ok := msg.(ResT)
 			if ok {
 				worker.Global().Push(func(data any) {
@@ -430,6 +446,9 @@ func AsyncSubReq[ResT util.IMsg](pkt kiwi.IRcvRequest, req util.IMsg, resFail ut
 			}
 			resFail(tid, head, code)
 		}, func(tid int64, head util.M, msg util.IMsg) {
+			if resOk == nil {
+				return
+			}
 			res, ok := msg.(ResT)
 			if ok {
 				resOk(tid, head, res)

@@ -151,7 +151,20 @@ func AsyncFind[T any](coll string, filter any, fn func([]*T, error), opts ...*op
 	}
 }
 
-func FindWithTotal[T any](coll string, filter any, fn func(int64, []*T, error), opts ...*options.FindOptions) {
+func FindWithTotal[T any](coll string, filter any, count *int64, list *[]*T, opts ...*options.FindOptions) error {
+	total, e := CountDoc(coll, filter)
+	if e != nil {
+		return e
+	}
+	if total == 0 {
+		return nil
+	}
+	*count = total
+	Find[T](coll, filter, list, opts...)
+	return nil
+}
+
+func AsyncFindWithTotal[T any](coll string, filter any, fn func(int64, []*T, error), opts ...*options.FindOptions) {
 	total, e := CountDoc(coll, filter)
 	if e != nil {
 		fn(0, nil, e)
