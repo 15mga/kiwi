@@ -280,15 +280,21 @@ func BuildProjectionD(d *bson.D, exclude []string, keys ...string) {
 		}
 		return
 	}
-	m := make(map[string]struct{}, len(exclude))
-	for _, s := range exclude {
-		m[s] = struct{}{}
-	}
-	for _, key := range keys {
-		_, ok := m[key]
-		if ok {
-			continue
+	if len(keys) > 0 {
+		m := make(map[string]struct{}, len(exclude))
+		for _, s := range exclude {
+			m[s] = struct{}{}
 		}
-		*d = append(*d, bson.E{Key: key, Value: 1})
+		for _, key := range keys {
+			_, ok := m[key]
+			if ok {
+				continue
+			}
+			*d = append(*d, bson.E{Key: key, Value: 1})
+		}
+	} else {
+		for _, key := range exclude {
+			*d = append(*d, bson.E{Key: key, Value: 0})
+		}
 	}
 }
