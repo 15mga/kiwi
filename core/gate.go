@@ -158,7 +158,6 @@ func InitGate(receiver kiwi.FnAgentBytes, opts ...GateOption) {
 		if err != nil {
 			kiwi.Fatal(err)
 		}
-		_ = kiwi.GetNodeMeta().Data.Set2(g.option.udp, "gate", "udp")
 	}
 	if g.option.tcp > 0 {
 		addr := fmt.Sprintf("%s:%d", g.option.ip, g.option.tcp)
@@ -168,7 +167,6 @@ func InitGate(receiver kiwi.FnAgentBytes, opts ...GateOption) {
 			kiwi.Fatal(err)
 		}
 		g.listeners = append(g.listeners, listener)
-		_ = kiwi.GetNodeMeta().Data.Set2(g.option.tcp, "gate", "tcp")
 	}
 	if g.option.web > 0 {
 		addr := fmt.Sprintf("%s:%d", g.option.ip, g.option.web)
@@ -178,7 +176,6 @@ func InitGate(receiver kiwi.FnAgentBytes, opts ...GateOption) {
 			kiwi.Fatal(err)
 		}
 		g.listeners = append(g.listeners, listener)
-		_ = kiwi.GetNodeMeta().Data.Set2(g.option.web, "gate", "web")
 	}
 	kiwi.SetGate(g)
 }

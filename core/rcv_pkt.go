@@ -14,8 +14,8 @@ func NewRcvReqPkt() *RcvReqPkt {
 	return &RcvReqPkt{}
 }
 
-func NewRcvNtfPkt() *RcvNtfPkt {
-	return &RcvNtfPkt{}
+func NewRcvNtfPkt() *RcvNtcPkt {
+	return &RcvNtcPkt{}
 }
 
 type rcvPkt struct {

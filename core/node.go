@@ -18,7 +18,6 @@ type (
 		port     int
 		connType NodeConnType
 		selector NodeDialerSelector
-		//metaFilter util.
 	}
 	NodeConnType uint8
 )
@@ -54,11 +53,7 @@ func NodeSelector(selector NodeDialerSelector) NodeOption {
 	}
 }
 
-func InitNodeNet(opts ...NodeOption) {
-	kiwi.SetNode(NewNodeNet(opts...))
-}
-
-func NewNodeNet(opts ...NodeOption) kiwi.INode {
+func NewNode(opts ...NodeOption) kiwi.INode {
 	opt := &nodeOption{
 		connType: Tcp,
 		selector: func(set *ds.Set2Item[kiwi.TSvc, int64, kiwi.INodeDialer]) (int64, *util.Err) {
@@ -70,9 +65,8 @@ func NewNodeNet(opts ...NodeOption) kiwi.INode {
 	for _, o := range opts {
 		o(opt)
 	}
-	n := &nodeNet{
-		option:   opt,
-		nodeBase: newNodeBase(),
+	n := &node{
+		option: opt,
 		svcToDialer: ds.NewKSet2[kiwi.TSvc, int64, kiwi.INodeDialer](8, func(dialer kiwi.INodeDialer) int64 {
 			return dialer.NodeId()
 		}),
@@ -86,26 +80,10 @@ func NewNodeNet(opts ...NodeOption) kiwi.INode {
 		kiwi.Fatal(err)
 	}
 	opt.ip = ip
-	n.worker = worker.NewWorker(512, n.processor)
-	addr := fmt.Sprintf("%s:%d", n.option.ip, n.option.port)
-	switch opt.connType {
-	case Tcp:
-		n.listener = network.NewTcpListener(addr, n.onAddTcpConn)
-	case Udp:
-		n.listener = network.NewUdpListener(addr, n.onAddUdpConn)
-	}
-
-	err = n.listener.Start()
-	if err != nil {
-		panic(err.Error())
-	}
-
-	n.worker.Start()
 	return n
 }
 
-type nodeNet struct {
-	nodeBase
+type node struct {
 	option         *nodeOption
 	worker         *worker.Worker
 	svcToDialer    *ds.KSet2[kiwi.TSvc, int64, kiwi.INodeDialer]
@@ -115,35 +93,60 @@ type nodeNet struct {
 	watcherToCodes map[int64][]kiwi.TCode          //远程机监听的方法
 }
 
-func (n *nodeNet) Init() *util.Err {
-	return nil
+func (n *node) Init() {
+	n.worker = worker.NewWorker(512, n.processor)
+	addr := fmt.Sprintf("%s:%d", n.option.ip, n.option.port)
+	var connType string
+	switch n.option.connType {
+	case Tcp:
+		connType = "tcp"
+		n.listener = network.NewTcpListener(addr, n.onAddTcpConn)
+	case Udp:
+		connType = "tcp"
+		n.listener = network.NewUdpListener(addr, n.onAddUdpConn)
+	}
+
+	err := n.listener.Start()
+	if err != nil {
+		kiwi.Error3(util.EcListenErr, err)
+	}
+	port := n.listener.Port()
+	meta := kiwi.GetNodeMeta()
+	meta.Ip = n.option.ip
+	meta.Port = port
+	kiwi.Info("node listen", util.M{
+		"type": connType,
+		"meta": meta,
+	})
+
+	n.worker.Start()
 }
 
-func (n *nodeNet) Ip() string {
+func (n *node) Ip() string {
 	return n.option.ip
 }
 
-func (n *nodeNet) Port() int {
+func (n *node) Port() int {
 	return n.listener.Port()
 }
 
-func (n *nodeNet) Connect(ip string, port int, svc kiwi.TSvc, nodeId int64, ver string, head util.M) {
+func (n *node) Connect(ip string, port int, svc kiwi.TSvc, nodeId int64, ver string, head util.M) {
 	n.worker.Push(nodeJobConnect{ip, port, svc, nodeId, ver, head})
 }
 
-func (n *nodeNet) Disconnect(svc kiwi.TSvc, nodeId int64) {
+func (n *node) Disconnect(svc kiwi.TSvc, nodeId int64) {
 	n.worker.Push(nodeJobDisconnect{svc, nodeId})
 }
 
-func (n *nodeNet) onConnected(dialer *nodeDialer) {
+func (n *node) onConnected(dialer *nodeDialer) {
 	n.worker.Push(nodeJobConnected{dialer})
 }
 
-func (n *nodeNet) onDisconnected(dialer *nodeDialer, err *util.Err) {
+func (n *node) onDisconnected(dialer *nodeDialer, err *util.Err) {
 	n.worker.Push(nodeJobDisconnected{dialer, err})
 }
 
-func (n *nodeNet) pushSelf(pus kiwi.ISndPush) {
+func (n *node) pushSelf(pus kiwi.ISndPush) {
 	pkt := NewRcvPusPkt()
 	msg := pus.Msg()
 	if msg != nil {
@@ -158,15 +161,15 @@ func (n *nodeNet) pushSelf(pus kiwi.ISndPush) {
 	kiwi.Router().OnPush(pkt)
 }
 
-func (n *nodeNet) Push(pus kiwi.ISndPush) {
-	if kiwi.GetNodeMeta().HasService(pus.Svc()) {
+func (n *node) Push(pus kiwi.ISndPush) {
+	if HasService(pus.Svc()) {
 		n.pushSelf(pus)
 		return
 	}
 	n.worker.Push(pus)
 }
 
-func (n *nodeNet) PushNode(nodeId int64, pus kiwi.ISndPush) {
+func (n *node) PushNode(nodeId int64, pus kiwi.ISndPush) {
 	if nodeId == kiwi.GetNodeMeta().NodeId {
 		n.pushSelf(pus)
 		return
@@ -174,36 +177,72 @@ func (n *nodeNet) PushNode(nodeId int64, pus kiwi.ISndPush) {
 	n.worker.Push(nodeJobPusNode{nodeId, pus})
 }
 
-func (n *nodeNet) Request(req kiwi.ISndRequest) {
-	if kiwi.GetNodeMeta().HasService(req.Svc()) {
-		n.nodeBase.Request(req)
+func (n *node) request(req kiwi.ISndRequest) {
+	pkt := NewRcvReqPkt()
+	msg := req.Msg()
+	if msg != nil {
+		pkt.InitWithMsg(HdRequest, req.Tid(), req.Head(), req.Json(), req.Msg())
+	} else {
+		err := pkt.InitWithBytes(HdRequest, req.Tid(), req.Head(), req.Json(), req.Payload())
+		if err != nil {
+			kiwi.Error(err)
+			return
+		}
+	}
+	kiwi.Router().OnRequest(pkt)
+}
+
+func (n *node) Request(req kiwi.ISndRequest) {
+	if HasService(req.Svc()) {
+		n.request(req)
 		return
 	}
 	n.worker.Push(req)
 }
 
-func (n *nodeNet) RequestNode(nodeId int64, req kiwi.ISndRequest) {
+func (n *node) RequestNode(nodeId int64, req kiwi.ISndRequest) {
 	if nodeId == kiwi.GetNodeMeta().NodeId {
-		n.nodeBase.Request(req)
+		n.request(req)
 		return
 	}
 	n.worker.Push(nodeJobReqNode{nodeId, req})
 }
 
-func (n *nodeNet) Notify(ntc kiwi.ISndNotice, filter util.MToBool) {
-	n.nodeBase.Notify(ntc, filter)
+func (n *node) Notify(ntc kiwi.ISndNotice, filter util.MToBool) {
 	n.worker.Push(nodeJobSendNotice{ntc, filter})
+
+	var pkt *RcvNtcPkt
+	for _, service := range AllService() {
+		if service.HasNoticeWatcher(ntc.Svc(), ntc.Code()) {
+			if filter == nil || filter(service.Meta()) {
+				if pkt == nil {
+					pkt = NewRcvNtfPkt()
+					msg := ntc.Msg()
+					if msg != nil {
+						pkt.InitWithMsg(HdNotify, ntc.Tid(), ntc.Head(), ntc.Json(), ntc.Msg())
+					} else {
+						err := pkt.InitWithBytes(HdNotify, ntc.Tid(), ntc.Head(), ntc.Json(), ntc.Payload())
+						if err != nil {
+							kiwi.Error(err)
+							return
+						}
+					}
+				}
+				service.OnNotice(pkt)
+			}
+		}
+	}
 }
 
-func (n *nodeNet) ReceiveWatchNotice(nodeId int64, codes []kiwi.TCode, meta util.M) {
+func (n *node) ReceiveWatchNotice(nodeId int64, codes []kiwi.TCode, meta util.M) {
 	n.worker.Push(nodeJobWatchNotice{nodeId, codes, meta})
 }
 
-func (n *nodeNet) SendToNode(nodeId int64, bytes []byte, fnErr util.FnErr) {
+func (n *node) SendToNode(nodeId int64, bytes []byte, fnErr util.FnErr) {
 	n.worker.Push(nodeJobSendBytes{nodeId, bytes, fnErr})
 }
 
-func (n *nodeNet) onAddTcpConn(conn net.Conn) {
+func (n *node) onAddTcpConn(conn net.Conn) {
 	addr := conn.RemoteAddr().String()
 	agent := network.NewTcpAgent(addr, n.receive,
 		kiwi.AgentErr(func(err *util.Err) {
@@ -216,7 +255,7 @@ func (n *nodeNet) onAddTcpConn(conn net.Conn) {
 	agent.Start(util.Ctx(), conn)
 }
 
-func (n *nodeNet) onAddUdpConn(conn net.Conn) {
+func (n *node) onAddUdpConn(conn net.Conn) {
 	addr := conn.RemoteAddr().String()
 	agent := network.NewUdpAgent(addr, n.receive,
 		kiwi.AgentErr(func(err *util.Err) {
@@ -229,7 +268,7 @@ func (n *nodeNet) onAddUdpConn(conn net.Conn) {
 	agent.Start(util.Ctx(), conn)
 }
 
-func (n *nodeNet) createDialer(name, addr string) kiwi.IDialer {
+func (n *node) createDialer(name, addr string) kiwi.IDialer {
 	switch n.option.connType {
 	case Tcp:
 		return network.NewTcpDialer(name, addr, n.receive, kiwi.AgentMode(kiwi.AgentW))
@@ -243,7 +282,7 @@ func (n *nodeNet) createDialer(name, addr string) kiwi.IDialer {
 	}
 }
 
-func (n *nodeNet) processor(data any) {
+func (n *node) processor(data any) {
 	switch d := data.(type) {
 	case nodeJobConnect:
 		if n.idToDialer.Has(d.nodeId) {
@@ -282,8 +321,14 @@ func (n *nodeNet) processor(data any) {
 			"head":    d.dialer.head,
 		})
 		//发送消息监听
-		codes, ok := kiwi.Router().GetWatchCodes(d.dialer.Svc())
-		if ok {
+		var codes []kiwi.TCode
+		for _, service := range AllService() {
+			c, ok := service.GetWatchCodes(d.dialer.Svc())
+			if ok {
+				codes = append(codes, c...)
+			}
+		}
+		if len(codes) > 0 {
 			bytes := kiwi.Packer().PackWatchNotify(kiwi.GetNodeMeta().NodeId, codes, nil)
 			d.dialer.Send(bytes, kiwi.Error)
 		}
@@ -424,7 +469,7 @@ func (n *nodeNet) processor(data any) {
 	}
 }
 
-func (n *nodeNet) sendToSvc(svc kiwi.TSvc, bytes []byte, fnErr util.FnErr) {
+func (n *node) sendToSvc(svc kiwi.TSvc, bytes []byte, fnErr util.FnErr) {
 	set, ok := n.svcToDialer.Get(svc)
 	if !ok {
 		fnErr(util.NewErr(util.EcNotExist, util.M{
@@ -457,7 +502,7 @@ func (n *nodeNet) sendToSvc(svc kiwi.TSvc, bytes []byte, fnErr util.FnErr) {
 	}
 }
 
-func (n *nodeNet) sendToNode(nodeId int64, bytes []byte, fnErr util.FnErr) {
+func (n *node) sendToNode(nodeId int64, bytes []byte, fnErr util.FnErr) {
 	dialer, ok := n.idToDialer.Get(nodeId)
 	if !ok {
 		fnErr(util.NewErr(util.EcNotExist, util.M{
@@ -466,6 +511,114 @@ func (n *nodeNet) sendToNode(nodeId int64, bytes []byte, fnErr util.FnErr) {
 		return
 	}
 	dialer.Send(bytes, fnErr)
+}
+
+func (n *node) receive(agent kiwi.IAgent, bytes []byte) {
+	switch bytes[0] {
+	case HdPush:
+		n.onPush(agent, bytes)
+	case HdRequest:
+		n.onRequest(agent, bytes)
+	case HdOk:
+		n.onResponseOk(agent, bytes)
+	case HdFail:
+		n.onResponseFail(agent, bytes)
+	case HdHeartbeat:
+		n.onHeartbeat(agent, bytes)
+	case HdNotify:
+		n.onNotify(agent, bytes)
+	case HdWatch:
+		n.onWatchNotify(agent, bytes)
+	default:
+		kiwi.Error2(util.EcNotExist, util.M{
+			"head": bytes[0],
+		})
+	}
+}
+
+func (n *node) onHeartbeat(agent kiwi.IAgent, bytes []byte) {
+
+}
+
+func (n *node) onPush(agent kiwi.IAgent, bytes []byte) {
+	pkt := NewRcvPusPkt()
+	err := kiwi.Packer().UnpackPush(bytes, pkt)
+	if err != nil {
+		if agent != nil {
+			err.AddParam("addr", agent.Addr())
+		}
+		kiwi.Error(err)
+		return
+	}
+	kiwi.Router().OnPush(pkt)
+}
+
+func (n *node) onRequest(agent kiwi.IAgent, bytes []byte) {
+	pkt := NewRcvReqPkt()
+	err := kiwi.Packer().UnpackRequest(bytes, pkt)
+	if err != nil {
+		if agent != nil {
+			err.AddParam("addr", agent.Addr())
+		}
+		kiwi.Error(err)
+		return
+	}
+	kiwi.Router().OnRequest(pkt)
+}
+
+func (n *node) onResponseOk(agent kiwi.IAgent, bytes []byte) {
+	head := make(util.M)
+	tid, payload, err := kiwi.Packer().UnpackResponseOk(bytes, head)
+	if err != nil {
+		if agent != nil {
+			err.AddParam("addr", agent.Addr())
+		}
+		kiwi.Error(err)
+		return
+	}
+	kiwi.Router().OnResponseOkBytes(tid, head, payload)
+}
+
+func (n *node) onResponseFail(agent kiwi.IAgent, bytes []byte) {
+	head := make(util.M)
+	tid, code, err := kiwi.Packer().UnpackResponseFail(bytes, head)
+	if err != nil {
+		if agent != nil {
+			err.AddParam("addr", agent.Addr())
+		}
+		kiwi.TE(tid, err)
+		return
+	}
+	kiwi.Router().OnResponseFail(tid, head, code)
+}
+
+func (n *node) onNotify(agent kiwi.IAgent, bytes []byte) {
+	pkt := NewRcvNtfPkt()
+	err := kiwi.Packer().UnpackNotify(bytes, pkt)
+	if err != nil {
+		if agent != nil {
+			err.AddParam("addr", agent.Addr())
+		}
+		kiwi.Error(err)
+		return
+	}
+
+	for _, service := range AllService() {
+		service.OnNotice(pkt)
+	}
+}
+
+func (n *node) onWatchNotify(agent kiwi.IAgent, bytes []byte) {
+	meta := util.M{}
+	nodeId, codes, err := kiwi.Packer().UnpackWatchNotify(bytes, meta)
+	if err != nil {
+		if agent != nil {
+			err.AddParam("addr", agent.Addr())
+		}
+		kiwi.Error(err)
+		return
+	}
+	kiwi.Node().ReceiveWatchNotice(nodeId, codes, meta)
 }
 
 type nodeJobConnect struct {

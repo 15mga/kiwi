@@ -25,7 +25,9 @@ func SetNode(node INode) {
 }
 
 type INode interface {
-	Init() *util.Err
+	Init()
+	Ip() string
+	Port() int
 	Connect(ip string, port int, svc TSvc, nodeId int64, ver string, head util.M)
 	Disconnect(svc TSvc, id int64)
 	Push(pus ISndPush)

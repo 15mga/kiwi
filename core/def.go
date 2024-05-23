@@ -13,34 +13,20 @@ import (
 )
 
 type option struct {
-	getNodeId   util.ToInt64
-	getServices func() map[kiwi.TSvc]string
-	strToSvc    func(string) kiwi.TSvc
-	mongo       *Mongo
-	redis       *Redis
-	worker      Worker
-	node        kiwi.INode
-	services    []kiwi.IService
-	gate        *Gate
-	loggers     []kiwi.ILogger
-	afterStart  func()
+	getNodeId  util.ToInt64
+	mongo      *Mongo
+	redis      *Redis
+	worker     Worker
+	node       kiwi.INode
+	services   []kiwi.IService
+	gate       *Gate
+	loggers    []kiwi.ILogger
+	afterStart func()
 }
 
-func SetGetNodeId(fn util.ToInt64) Option {
+func SetNodeId(fn util.ToInt64) Option {
 	return func(o *option) {
 		o.getNodeId = fn
-	}
-}
-
-func SetGetServices(fn func() map[kiwi.TSvc]string) Option {
-	return func(o *option) {
-		o.getServices = fn
-	}
-}
-
-func SetStrToSvc(fn func(string) kiwi.TSvc) Option {
-	return func(o *option) {
-		o.strToSvc = fn
 	}
 }
 
@@ -50,7 +36,7 @@ func SetLoggers(loggers ...kiwi.ILogger) Option {
 	}
 }
 
-func SetServices(services []kiwi.IService) Option {
+func SetServices(services ...kiwi.IService) Option {
 	return func(o *option) {
 		o.services = services
 	}
@@ -128,9 +114,15 @@ func SetGate(receiver kiwi.FnAgentBytes, options ...GateOption) Option {
 	}
 }
 
+func SetNode(opts ...NodeOption) Option {
+	return func(o *option) {
+		o.node = NewNode(opts...)
+	}
+}
+
 type Option func(*option)
 
-func StartDefault(opts ...Option) {
+func Start(opts ...Option) {
 	opt := option{
 		worker: Worker{
 			active:   true,
@@ -138,13 +130,14 @@ func StartDefault(opts ...Option) {
 			parallel: true,
 			global:   true,
 		},
-		node: NewNodeNet(),
-		loggers: []kiwi.ILogger{
-			log.NewStd(),
-		},
 	}
 	for _, o := range opts {
 		o(&opt)
+	}
+	if opt.loggers == nil {
+		opt.loggers = []kiwi.ILogger{
+			log.NewStd(),
+		}
 	}
 
 	if len(opt.loggers) > 0 {
@@ -153,10 +146,10 @@ func StartDefault(opts ...Option) {
 		}
 	}
 
-	nodeMeta := kiwi.GetNodeMeta()
-	for svc, ver := range opt.getServices() {
-		nodeMeta.AddService(svc, ver)
+	if opt.node == nil {
+		opt.node = NewNode()
 	}
+	opt.node.Init()
 
 	if opt.mongo != nil {
 		clientOpt := options.Client().ApplyURI(opt.mongo.uri)
@@ -195,6 +188,7 @@ func StartDefault(opts ...Option) {
 	if opt.gate != nil {
 		InitGate(opt.gate.receiver, opt.gate.options...)
 	}
+	nodeMeta := kiwi.GetNodeMeta()
 	nodeMeta.Init(opt.getNodeId())
 	StartAllService()
 

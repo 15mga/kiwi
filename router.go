@@ -28,8 +28,4 @@ type IRouter interface {
 	OnResponseOk(tid int64, head util.M, msg util.IMsg)
 	OnResponseOkBytes(tid int64, head util.M, bytes []byte)
 	OnResponseFail(tid int64, head util.M, code uint16)
-	WatchNotice(msg util.IMsg, handler NotifyHandler)
-	GetWatchCodes(svc TSvc) ([]TCode, bool)
-	OnNotice(pkt IRcvNotice)
-	HasNoticeWatcher(svc TSvc, code TCode) bool
 }

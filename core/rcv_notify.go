@@ -1,5 +1,5 @@
 package core
 
-type RcvNtfPkt struct {
+type RcvNtcPkt struct {
 	rcvPkt
 }

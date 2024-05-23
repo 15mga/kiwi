@@ -15,19 +15,15 @@ func InitRouter() {
 		idToRequest: cmap.NewWithCustomShardingFunction[int64, kiwi.ISndRequest](func(key int64) uint32 {
 			return uint32(key)
 		}),
-		watchCodes:    make(map[kiwi.TSvc][]kiwi.TCode),
-		notifyHandler: make(map[kiwi.TSvcCode][]kiwi.NotifyHandler),
 	}
 	kiwi.SetRouter(s)
 }
 
 type router struct {
-	leaseId       int64
-	pusHandle     map[kiwi.TSvcCode]kiwi.FnRcvPus
-	reqHandle     map[kiwi.TSvcCode]kiwi.FnRcvReq
-	idToRequest   cmap.ConcurrentMap[int64, kiwi.ISndRequest]
-	watchCodes    map[kiwi.TSvc][]kiwi.TCode
-	notifyHandler map[kiwi.TSvcCode][]kiwi.NotifyHandler
+	leaseId     int64
+	pusHandle   map[kiwi.TSvcCode]kiwi.FnRcvPus
+	reqHandle   map[kiwi.TSvcCode]kiwi.FnRcvReq
+	idToRequest cmap.ConcurrentMap[int64, kiwi.ISndRequest]
 }
 
 func (s *router) OnPush(pkt kiwi.IRcvPush) {
@@ -93,43 +89,6 @@ func (s *router) OnResponseFail(tid int64, head util.M, code uint16) {
 		return
 	}
 	req.Fail(head, code)
-}
-
-func (s *router) WatchNotice(msg util.IMsg, handler kiwi.NotifyHandler) {
-	svc, code := kiwi.Codec().MsgToSvcCode(msg)
-	slc, ok := s.watchCodes[svc]
-	if ok {
-		s.watchCodes[svc] = append(slc, code)
-	} else {
-		s.watchCodes[svc] = []kiwi.TCode{code}
-	}
-	sc := kiwi.MergeSvcCode(svc, code)
-	handlerSlc, ok := s.notifyHandler[sc]
-	if !ok {
-		s.notifyHandler[sc] = []kiwi.NotifyHandler{handler}
-	} else {
-		s.notifyHandler[sc] = append(handlerSlc, handler)
-	}
-}
-
-func (s *router) GetWatchCodes(svc kiwi.TSvc) ([]kiwi.TCode, bool) {
-	slc, ok := s.watchCodes[svc]
-	return slc, ok
-}
-
-func (s *router) OnNotice(pkt kiwi.IRcvNotice) {
-	handlerSlc, ok := s.notifyHandler[kiwi.MergeSvcCode(pkt.Svc(), pkt.Code())]
-	if !ok {
-		return
-	}
-	for _, handler := range handlerSlc {
-		handler(pkt)
-	}
-}
-
-func (s *router) HasNoticeWatcher(svc kiwi.TSvc, code kiwi.TCode) bool {
-	_, ok := s.notifyHandler[kiwi.MergeSvcCode(svc, code)]
-	return ok
 }
 
 func ActivePrcPus[Pus util.IMsg](pkt kiwi.IRcvPush, key string, handler func(kiwi.IRcvPush, Pus)) {
