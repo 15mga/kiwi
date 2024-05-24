@@ -21,11 +21,12 @@ type (
 )
 
 func newNodeDialer(dialer kiwi.IDialer, svc kiwi.TSvc, nodeId int64, ver string, head util.M,
-	onConnected OnNetDialerConnected, onDisconnected OnNetDialerDisconnected) *nodeDialer {
+	afterConnected func([]kiwi.INodeDialer), onConnected OnNetDialerConnected, onDisconnected OnNetDialerDisconnected) *nodeDialer {
 	d := &nodeDialer{
 		svc:            svc,
 		nodeId:         nodeId,
 		ver:            ver,
+		afterConnected: afterConnected,
 		head:           head,
 		dialer:         dialer,
 		onConnected:    onConnected,
@@ -44,6 +45,7 @@ type nodeDialer struct {
 	head           util.M
 	dialer         kiwi.IDialer
 	currReconnect  int
+	afterConnected func([]kiwi.INodeDialer)
 	onConnected    OnNetDialerConnected
 	onDisconnected OnNetDialerDisconnected
 	ctx            context.Context

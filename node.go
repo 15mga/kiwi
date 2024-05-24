@@ -28,7 +28,7 @@ type INode interface {
 	Init()
 	Ip() string
 	Port() int
-	Connect(ip string, port int, svc TSvc, nodeId int64, ver string, head util.M)
+	Connect(ip string, port int, svc TSvc, nodeId int64, ver string, head util.M, afterConnected func([]INodeDialer))
 	Disconnect(svc TSvc, id int64)
 	Push(pus ISndPush)
 	PushNode(nodeId int64, pus ISndPush)

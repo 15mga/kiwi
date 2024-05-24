@@ -130,8 +130,8 @@ func (n *node) Port() int {
 	return n.listener.Port()
 }
 
-func (n *node) Connect(ip string, port int, svc kiwi.TSvc, nodeId int64, ver string, head util.M) {
-	n.worker.Push(nodeJobConnect{ip, port, svc, nodeId, ver, head})
+func (n *node) Connect(ip string, port int, svc kiwi.TSvc, nodeId int64, ver string, head util.M, afterConnected func([]kiwi.INodeDialer)) {
+	n.worker.Push(nodeJobConnect{ip, port, svc, nodeId, ver, head, afterConnected})
 }
 
 func (n *node) Disconnect(svc kiwi.TSvc, nodeId int64) {
@@ -321,13 +321,16 @@ func (n *node) processor(data any) {
 			"head":    d.head,
 		})
 		dialer := n.createDialer(fmt.Sprintf("%d_%d", d.svc, d.nodeId), fmt.Sprintf("%s:%d", d.ip, d.port))
-		newNodeDialer(dialer, d.svc, d.nodeId, d.ver, d.head, n.onConnected, n.onDisconnected).connect()
+		newNodeDialer(dialer, d.svc, d.nodeId, d.ver, d.head, d.afterConnected, n.onConnected, n.onDisconnected).connect()
 	case nodeJobConnected:
-		set, _ := n.svcToDialer.GetOrNew(d.dialer.svc, func() *ds.Set2Item[kiwi.TSvc, int64, kiwi.INodeDialer] {
+		set, ok := n.svcToDialer.GetOrNew(d.dialer.svc, func() *ds.Set2Item[kiwi.TSvc, int64, kiwi.INodeDialer] {
 			return ds.NewSet2Item[kiwi.TSvc, int64, kiwi.INodeDialer](d.dialer.svc, 2, func(dialer kiwi.INodeDialer) int64 {
 				return dialer.NodeId()
 			})
 		})
+		if ok && d.dialer.afterConnected != nil {
+			d.dialer.afterConnected(set.Values())
+		}
 		old := set.Set(d.dialer)
 		if old != nil {
 			kiwi.Error2(util.EcExist, util.M{
@@ -335,7 +338,7 @@ func (n *node) processor(data any) {
 			})
 		}
 		_ = n.idToDialer.Set(d.dialer)
-		kiwi.Info("service connected", util.M{
+		kiwi.Info("node connected", util.M{
 			"svc":     d.dialer.svc,
 			"ver":     d.dialer.ver,
 			"node id": d.dialer.nodeId,
@@ -665,12 +668,13 @@ func (n *node) onWatchNotify(agent kiwi.IAgent, bytes []byte) {
 }
 
 type nodeJobConnect struct {
-	ip     string
-	port   int
-	svc    kiwi.TSvc
-	nodeId int64
-	ver    string
-	head   util.M
+	ip             string
+	port           int
+	svc            kiwi.TSvc
+	nodeId         int64
+	ver            string
+	head           util.M
+	afterConnected func([]kiwi.INodeDialer)
 }
 
 type nodeJobConnected struct {
