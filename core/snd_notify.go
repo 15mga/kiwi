@@ -46,14 +46,20 @@ func (n *SNotify) Dispose() {
 	_NtfPool.Put(n)
 }
 
+func Ntf(pid int64, head util.M, msg util.IMsg) int64 {
+	ntf := newNotify(pid, head, msg)
+	kiwi.Node().Notify(ntf, nil)
+	return ntf.tid
+}
+
 func NtfWithFilter(pid int64, head util.M, msg util.IMsg, filter util.MToBool) int64 {
 	ntf := newNotify(pid, head, msg)
 	kiwi.Node().Notify(ntf, filter)
 	return ntf.tid
 }
 
-func Ntf(pid int64, head util.M, msg util.IMsg) int64 {
+func NtfOne(pid int64, head util.M, msg util.IMsg, filter util.MToBool) int64 {
 	ntf := newNotify(pid, head, msg)
-	kiwi.Node().Notify(ntf, nil)
+	kiwi.Node().NotifyOne(ntf, filter)
 	return ntf.tid
 }

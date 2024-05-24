@@ -217,8 +217,7 @@ func (n *node) Notify(ntc kiwi.ISndNotice, filter util.MToBool) {
 			if filter == nil || filter(service.Meta()) {
 				if pkt == nil {
 					pkt = NewRcvNtfPkt()
-					msg := ntc.Msg()
-					if msg != nil {
+					if ntc.Msg() != nil {
 						pkt.InitWithMsg(HdNotify, ntc.Tid(), ntc.Head(), ntc.Json(), ntc.Msg())
 					} else {
 						err := pkt.InitWithBytes(HdNotify, ntc.Tid(), ntc.Head(), ntc.Json(), ntc.Payload())
@@ -232,6 +231,28 @@ func (n *node) Notify(ntc kiwi.ISndNotice, filter util.MToBool) {
 			}
 		}
 	}
+}
+
+func (n *node) NotifyOne(ntc kiwi.ISndNotice, filter util.MToBool) {
+	for _, service := range AllService() {
+		if service.HasNoticeWatcher(ntc.Svc(), ntc.Code()) {
+			if filter == nil || filter(service.Meta()) {
+				pkt := NewRcvNtfPkt()
+				if ntc.Msg() != nil {
+					pkt.InitWithMsg(HdNotify, ntc.Tid(), ntc.Head(), ntc.Json(), ntc.Msg())
+				} else {
+					err := pkt.InitWithBytes(HdNotify, ntc.Tid(), ntc.Head(), ntc.Json(), ntc.Payload())
+					if err != nil {
+						kiwi.Error(err)
+						return
+					}
+				}
+				service.OnNotice(pkt)
+				return
+			}
+		}
+	}
+	n.worker.Push(nodeJobSendNoticeOne{ntc, filter})
 }
 
 func (n *node) ReceiveWatchNotice(nodeId int64, codes []kiwi.TCode, meta util.M) {
@@ -400,6 +421,28 @@ func (n *node) processor(data any) {
 				dialer, ok := n.idToDialer.Get(nodeId)
 				if ok {
 					dialer.Send(util.CopyBytes(bytes), nil)
+				} else {
+					delete(m, nodeId)
+				}
+			}
+		}
+	case nodeJobSendNoticeOne:
+		tid := d.notice.Tid()
+		bytes, err := kiwi.Packer().PackNotify(tid, d.notice)
+		if err != nil {
+			kiwi.TE(tid, err)
+			return
+		}
+		m, ok := n.codeToWatchers[d.notice.Code()]
+		if !ok {
+			return
+		}
+		for nodeId, meta := range m {
+			if d.filter == nil || d.filter(meta) {
+				dialer, ok := n.idToDialer.Get(nodeId)
+				if ok {
+					dialer.Send(util.CopyBytes(bytes), nil)
+					break
 				} else {
 					delete(m, nodeId)
 				}
@@ -645,6 +688,11 @@ type nodeJobDisconnected struct {
 }
 
 type nodeJobSendNotice struct {
+	notice kiwi.ISndNotice
+	filter util.MToBool
+}
+
+type nodeJobSendNoticeOne struct {
 	notice kiwi.ISndNotice
 	filter util.MToBool
 }

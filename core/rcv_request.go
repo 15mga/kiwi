@@ -14,11 +14,17 @@ type RcvReqPkt struct {
 func (p *RcvReqPkt) Ok(msg util.IMsg) {
 	if !IsExcludeLog(p.svc, p.code) {
 		sndTs, _ := util.MGet[int64](p.head, HeadSndTs)
-		kiwi.TI(p.tid, "ok", util.M{
+		m := util.M{
 			"dur": time.Now().UnixMilli() - sndTs,
-			string(p.msg.ProtoReflect().Descriptor().Name()): p.msg,
-			string(msg.ProtoReflect().Descriptor().Name()):   msg,
-		})
+		}
+		if !IsExcludeMsg(p.svc, p.code) {
+			m[string(p.msg.ProtoReflect().Descriptor().Name())] = p.msg
+			m[string(msg.ProtoReflect().Descriptor().Name())] = msg
+		} else {
+			m[string(p.msg.ProtoReflect().Descriptor().Name())] = ""
+			m[string(msg.ProtoReflect().Descriptor().Name())] = ""
+		}
+		kiwi.TI(p.tid, "ok", m)
 	}
 	p.Complete()
 	if p.senderId == kiwi.GetNodeMeta().NodeId {
@@ -70,11 +76,16 @@ func (p *RcvReqPkt) Err(err *util.Err) {
 func (p *RcvReqPkt) Fail(code uint16) {
 	if !IsExcludeLog(p.svc, p.code) {
 		sndTs, _ := util.MGet[int64](p.head, HeadSndTs)
-		kiwi.TI(p.tid, "fail", util.M{
-			"dur": time.Now().UnixMilli() - sndTs,
-			string(p.msg.ProtoReflect().Descriptor().Name()): p.msg,
+		m := util.M{
+			"dur":   time.Now().UnixMilli() - sndTs,
 			"error": util.ErrCodeToStr(code),
-		})
+		}
+		if !IsExcludeMsg(p.svc, p.code) {
+			m[string(p.msg.ProtoReflect().Descriptor().Name())] = p.msg
+		} else {
+			m[string(p.msg.ProtoReflect().Descriptor().Name())] = ""
+		}
+		kiwi.TI(p.tid, "fail", m)
 	}
 	p.Complete()
 	if p.senderId == kiwi.GetNodeMeta().NodeId {

@@ -34,7 +34,10 @@ type INode interface {
 	PushNode(nodeId int64, pus ISndPush)
 	Request(req ISndRequest)
 	RequestNode(nodeId int64, req ISndRequest)
+	// Notify 广播给所有符合的
 	Notify(ntc ISndNotice, filter util.MToBool)
+	// NotifyOne 只广播给一个符合的
+	NotifyOne(ntc ISndNotice, filter util.MToBool)
 	ReceiveWatchNotice(nodeId int64, methods []TCode, meta util.M)
 	SendToNode(nodeId int64, bytes []byte, fnErr util.FnErr)
 }

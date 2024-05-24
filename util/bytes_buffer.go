@@ -97,11 +97,14 @@ func SpawnBytesWithLen(l int) []byte {
 			return make([]byte, l)
 		}
 	}
-	return _BytesPoolMap[c].Get().([]byte)
+	pool, ok := _BytesPoolMap[c]
+	if ok {
+		return pool.Get().([]byte)
+	}
+	return make([]byte, l)
 }
 
 func RecycleBytes(bytes []byte) {
-	//return
 	c := cap(bytes)
 	if c < _MinBytesCap || c > _MaxBytesCap {
 		return
@@ -110,7 +113,10 @@ func RecycleBytes(bytes []byte) {
 	if c < ll {
 		c = ll >> 1
 	}
-	_BytesPoolMap[c].Put(bytes[:c])
+	pool, ok := _BytesPoolMap[c]
+	if ok {
+		pool.Put(bytes[:c])
+	}
 }
 
 func CopyBytes(src []byte) []byte {
