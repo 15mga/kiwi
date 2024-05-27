@@ -22,7 +22,7 @@ type (
 	NodeConnType uint8
 )
 
-type NodeDialerSelector func(set *ds.Set2Item[kiwi.TSvc, int64, kiwi.INodeDialer]) (int64, *util.Err)
+type NodeDialerSelector func(set *ds.Set2Item[kiwi.TSvc, int64, kiwi.INodeDialer]) (kiwi.INodeDialer, *util.Err)
 
 const (
 	Tcp NodeConnType = iota
@@ -56,10 +56,10 @@ func NodeSelector(selector NodeDialerSelector) NodeOption {
 func NewNode(opts ...NodeOption) kiwi.INode {
 	opt := &nodeOption{
 		connType: Tcp,
-		selector: func(set *ds.Set2Item[kiwi.TSvc, int64, kiwi.INodeDialer]) (int64, *util.Err) {
+		selector: func(set *ds.Set2Item[kiwi.TSvc, int64, kiwi.INodeDialer]) (kiwi.INodeDialer, *util.Err) {
 			i := rand.Intn(set.Count())
 			dialer, _ := set.GetWithIdx(i)
-			return dialer.NodeId(), nil
+			return dialer, nil
 		},
 	}
 	for _, o := range opts {
@@ -130,8 +130,8 @@ func (n *node) Port() int {
 	return n.listener.Port()
 }
 
-func (n *node) Connect(ip string, port int, svc kiwi.TSvc, nodeId int64, ver string, head util.M, afterConnected func([]kiwi.INodeDialer)) {
-	n.worker.Push(nodeJobConnect{ip, port, svc, nodeId, ver, head, afterConnected})
+func (n *node) Connect(meta kiwi.SvcMeta) {
+	n.worker.Push(nodeJobConnect{meta})
 }
 
 func (n *node) Disconnect(svc kiwi.TSvc, nodeId int64) {
@@ -162,11 +162,7 @@ func (n *node) pushSelf(pus kiwi.ISndPush) {
 }
 
 func (n *node) Push(pus kiwi.ISndPush) {
-	if HasService(pus.Svc()) {
-		n.pushSelf(pus)
-		return
-	}
-	n.worker.Push(pus)
+	n.worker.Push(nodeJobPus{pus})
 }
 
 func (n *node) PushNode(nodeId int64, pus kiwi.ISndPush) {
@@ -177,7 +173,7 @@ func (n *node) PushNode(nodeId int64, pus kiwi.ISndPush) {
 	n.worker.Push(nodeJobPusNode{nodeId, pus})
 }
 
-func (n *node) request(req kiwi.ISndRequest) {
+func (n *node) requestSelf(req kiwi.ISndRequest) {
 	pkt := NewRcvReqPkt()
 	msg := req.Msg()
 	if msg != nil {
@@ -193,16 +189,12 @@ func (n *node) request(req kiwi.ISndRequest) {
 }
 
 func (n *node) Request(req kiwi.ISndRequest) {
-	if HasService(req.Svc()) {
-		n.request(req)
-		return
-	}
-	n.worker.Push(req)
+	n.worker.Push(nodeJobReq{req})
 }
 
 func (n *node) RequestNode(nodeId int64, req kiwi.ISndRequest) {
 	if nodeId == kiwi.GetNodeMeta().NodeId {
-		n.request(req)
+		n.requestSelf(req)
 		return
 	}
 	n.worker.Push(nodeJobReqNode{nodeId, req})
@@ -306,31 +298,26 @@ func (n *node) createDialer(name, addr string) kiwi.IDialer {
 func (n *node) processor(data any) {
 	switch d := data.(type) {
 	case nodeJobConnect:
-		if n.idToDialer.Has(d.nodeId) {
-			kiwi.Info("exist service", util.M{
-				"node id": d.nodeId,
-			})
+		if n.idToDialer.Has(d.meta.NodeId) {
 			return
 		}
 		kiwi.Info("connect service", util.M{
-			"ip":      d.ip,
-			"port":    d.port,
-			"svc":     d.svc,
-			"node id": d.nodeId,
-			"ver":     d.ver,
-			"head":    d.head,
+			"ip":      d.meta.Ip,
+			"port":    d.meta.Port,
+			"svc":     d.meta.Svc,
+			"node id": d.meta.NodeId,
+			"ver":     d.meta.Ver,
 		})
-		dialer := n.createDialer(fmt.Sprintf("%d_%d", d.svc, d.nodeId), fmt.Sprintf("%s:%d", d.ip, d.port))
-		newNodeDialer(dialer, d.svc, d.nodeId, d.ver, d.head, d.afterConnected, n.onConnected, n.onDisconnected).connect()
+		name := fmt.Sprintf("%d_%d", d.meta.Svc, d.meta.NodeId)
+		addr := fmt.Sprintf("%s:%d", d.meta.Ip, d.meta.Port)
+		dialer := n.createDialer(name, addr)
+		newNodeDialer(dialer, d.meta.Svc, d.meta.NodeId, d.meta.Ver, n.onConnected, n.onDisconnected).connect()
 	case nodeJobConnected:
-		set, ok := n.svcToDialer.GetOrNew(d.dialer.svc, func() *ds.Set2Item[kiwi.TSvc, int64, kiwi.INodeDialer] {
+		set, _ := n.svcToDialer.GetOrNew(d.dialer.svc, func() *ds.Set2Item[kiwi.TSvc, int64, kiwi.INodeDialer] {
 			return ds.NewSet2Item[kiwi.TSvc, int64, kiwi.INodeDialer](d.dialer.svc, 2, func(dialer kiwi.INodeDialer) int64 {
 				return dialer.NodeId()
 			})
 		})
-		if ok && d.dialer.afterConnected != nil {
-			d.dialer.afterConnected(set.Values())
-		}
 		old := set.Set(d.dialer)
 		if old != nil {
 			kiwi.Error2(util.EcExist, util.M{
@@ -342,7 +329,6 @@ func (n *node) processor(data any) {
 			"svc":     d.dialer.svc,
 			"ver":     d.dialer.ver,
 			"node id": d.dialer.nodeId,
-			"head":    d.dialer.head,
 		})
 		//发送消息监听
 		var codes []kiwi.TCode
@@ -353,15 +339,13 @@ func (n *node) processor(data any) {
 			}
 		}
 		if len(codes) > 0 {
-			bytes := kiwi.Packer().PackWatchNotify(kiwi.GetNodeMeta().NodeId, codes, nil)
-			d.dialer.Send(bytes, kiwi.Error)
+			nodeMeta := kiwi.GetNodeMeta()
+			bytes := kiwi.Packer().PackWatchNotify(nodeMeta.NodeId, codes, nodeMeta.Data)
+			d.dialer.Send(0, bytes)
 		}
-		var head util.M
-		d.dialer.head.CopyTo(head)
 		kiwi.DispatchEvent(kiwi.Evt_Svc_Connected, &kiwi.EvtSvcConnected{
-			Svc:  d.dialer.svc,
-			Id:   d.dialer.nodeId,
-			Head: head,
+			Svc: d.dialer.svc,
+			Id:  d.dialer.nodeId,
 		})
 	case nodeJobDisconnected:
 		set, ok := n.svcToDialer.Get(d.dialer.svc)
@@ -387,7 +371,6 @@ func (n *node) processor(data any) {
 			"error":   d.err,
 			"svc":     d.dialer.svc,
 			"node id": d.dialer.nodeId,
-			"head":    d.dialer.head,
 		})
 		kiwi.DispatchEvent(kiwi.Evt_Svc_Disonnected, &kiwi.EvtSvcDisconnected{
 			Svc: d.dialer.svc,
@@ -405,7 +388,6 @@ func (n *node) processor(data any) {
 		kiwi.Info("disconnect service", util.M{
 			"service": dialer.Svc(),
 			"node id": dialer.NodeId(),
-			"head":    dialer.Head(),
 		})
 		dialer.Dialer().Agent().Dispose()
 	case nodeJobSendNotice:
@@ -423,7 +405,7 @@ func (n *node) processor(data any) {
 			if d.filter == nil || d.filter(meta) {
 				dialer, ok := n.idToDialer.Get(nodeId)
 				if ok {
-					dialer.Send(util.CopyBytes(bytes), nil)
+					dialer.Send(tid, util.CopyBytes(bytes))
 				} else {
 					delete(m, nodeId)
 				}
@@ -444,7 +426,7 @@ func (n *node) processor(data any) {
 			if d.filter == nil || d.filter(meta) {
 				dialer, ok := n.idToDialer.Get(nodeId)
 				if ok {
-					dialer.Send(util.CopyBytes(bytes), nil)
+					dialer.Send(tid, util.CopyBytes(bytes))
 					break
 				} else {
 					delete(m, nodeId)
@@ -470,16 +452,36 @@ func (n *node) processor(data any) {
 				}
 			}
 		}
-	case kiwi.ISndPush:
-		tid := d.Tid()
-		bytes, err := kiwi.Packer().PackPush(tid, d)
+	case nodeJobPus:
+		set, ok := n.svcToDialer.Get(d.pus.Svc())
+		if !ok || set.Count() == 0 {
+			ok = HasService(d.pus.Svc())
+			if !ok {
+				kiwi.Error2(util.EcNotExist, util.M{
+					"svc": d.pus.Svc(),
+				})
+				return
+			}
+			n.pushSelf(d.pus)
+			return
+		}
+		tid := d.pus.Tid()
+		bytes, err := kiwi.Packer().PackPush(tid, d.pus)
 		if err != nil {
 			kiwi.TE(tid, err)
 			return
 		}
-		n.sendToSvc(d.Svc(), bytes, func(err *util.Err) {
+		if set.Count() == 1 {
+			dialer, _ := set.GetWithIdx(0)
+			dialer.Send(tid, bytes)
+			return
+		}
+		dialer, err := n.option.selector(set)
+		if err != nil {
 			kiwi.TE(tid, err)
-		})
+			return
+		}
+		dialer.Send(tid, bytes)
 	case nodeJobPusNode:
 		tid := d.pus.Tid()
 		bytes, err := kiwi.Packer().PackPush(tid, d.pus)
@@ -487,19 +489,37 @@ func (n *node) processor(data any) {
 			kiwi.TE(tid, err)
 			return
 		}
-		n.sendToNode(d.nodeId, bytes, func(err *util.Err) {
-			kiwi.TE(tid, err)
-		})
-	case kiwi.ISndRequest:
-		tid := d.Tid()
-		bytes, err := kiwi.Packer().PackRequest(tid, d)
+		n.sendToNode(tid, d.nodeId, bytes)
+	case nodeJobReq:
+		set, ok := n.svcToDialer.Get(d.req.Svc())
+		if !ok || set.Count() == 0 {
+			ok = HasService(d.req.Svc())
+			if !ok {
+				kiwi.Error2(util.EcNotExist, util.M{
+					"svc": d.req.Svc(),
+				})
+				return
+			}
+			n.requestSelf(d.req)
+			return
+		}
+		tid := d.req.Tid()
+		bytes, err := kiwi.Packer().PackRequest(tid, d.req)
 		if err != nil {
 			kiwi.TE(tid, err)
 			return
 		}
-		n.sendToSvc(d.Svc(), bytes, func(err *util.Err) {
+		if set.Count() == 1 {
+			dialer, _ := set.GetWithIdx(0)
+			dialer.Send(tid, bytes)
+			return
+		}
+		dialer, err := n.option.selector(set)
+		if err != nil {
 			kiwi.TE(tid, err)
-		})
+			return
+		}
+		dialer.Send(tid, bytes)
 	case nodeJobReqNode:
 		tid := d.req.Tid()
 		bytes, err := kiwi.Packer().PackRequest(tid, d.req)
@@ -507,56 +527,27 @@ func (n *node) processor(data any) {
 			kiwi.TE(tid, err)
 			return
 		}
-		n.sendToNode(d.nodeId, bytes, func(err *util.Err) {
-			kiwi.TE(tid, err)
-		})
+		n.sendToNode(tid, d.nodeId, bytes)
 	case nodeJobSendBytes:
-		n.sendToNode(d.nodeId, d.payload, d.fnErr)
+		n.sendToNode(0, d.nodeId, d.payload)
 	}
 }
 
-func (n *node) sendToSvc(svc kiwi.TSvc, bytes []byte, fnErr util.FnErr) {
-	set, ok := n.svcToDialer.Get(svc)
-	if !ok {
-		fnErr(util.NewErr(util.EcNotExist, util.M{
-			"svc": svc,
-		}))
-		return
-	}
-	switch set.Count() {
-	case 0:
-		fnErr(util.NewErr(util.EcNotExist, util.M{
-			"svc": svc,
-		}))
-	case 1:
-		dialer, _ := set.GetWithIdx(0)
-		dialer.Send(bytes, fnErr)
-	default:
-		nodeId, err := n.option.selector(set)
-		if err != nil {
-			fnErr(err)
-			return
-		}
-		dialer, ok := n.idToDialer.Get(nodeId)
-		if !ok {
-			fnErr(util.NewErr(util.EcNotExist, util.M{
-				"id": nodeId,
-			}))
-			return
-		}
-		dialer.Send(bytes, fnErr)
-	}
-}
-
-func (n *node) sendToNode(nodeId int64, bytes []byte, fnErr util.FnErr) {
+func (n *node) sendToNode(tid, nodeId int64, bytes []byte) {
 	dialer, ok := n.idToDialer.Get(nodeId)
 	if !ok {
-		fnErr(util.NewErr(util.EcNotExist, util.M{
-			"id": nodeId,
-		}))
+		if tid > 0 {
+			kiwi.TE2(tid, util.EcNotExist, util.M{
+				"id": nodeId,
+			})
+		} else {
+			kiwi.Error2(util.EcNotExist, util.M{
+				"id": nodeId,
+			})
+		}
 		return
 	}
-	dialer.Send(bytes, fnErr)
+	dialer.Send(tid, bytes)
 }
 
 func (n *node) receive(agent kiwi.IAgent, bytes []byte) {
@@ -668,13 +659,7 @@ func (n *node) onWatchNotify(agent kiwi.IAgent, bytes []byte) {
 }
 
 type nodeJobConnect struct {
-	ip             string
-	port           int
-	svc            kiwi.TSvc
-	nodeId         int64
-	ver            string
-	head           util.M
-	afterConnected func([]kiwi.INodeDialer)
+	meta kiwi.SvcMeta
 }
 
 type nodeJobConnected struct {
@@ -707,9 +692,17 @@ type nodeJobWatchNotice struct {
 	meta   util.M
 }
 
+type nodeJobPus struct {
+	pus kiwi.ISndPush
+}
+
 type nodeJobPusNode struct {
 	nodeId int64
 	pus    kiwi.ISndPush
+}
+
+type nodeJobReq struct {
+	req kiwi.ISndRequest
 }
 
 type nodeJobReqNode struct {

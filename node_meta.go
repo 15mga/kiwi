@@ -9,6 +9,7 @@ import (
 var (
 	_NodeMeta = &NodeMeta{
 		StartTime: time.Now().Unix(),
+		Data:      util.M{},
 	}
 )
 
@@ -23,9 +24,15 @@ type NodeMeta struct {
 	NodeId    int64
 	StartTime int64
 	Mode      string
+	Data      util.M
 }
 
 func (n *NodeMeta) Init(id int64) {
+	if id < 0 {
+		Fatal(util.NewErr(util.EcParamsErr, util.M{
+			"id": id,
+		}))
+	}
 	n.Id = id
 	sid.SetNodeId(id)
 	n.NodeId = sid.GetId()

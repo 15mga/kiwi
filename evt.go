@@ -33,9 +33,8 @@ type EvtRouterDisconnected struct {
 }
 
 type EvtSvcConnected struct {
-	Svc  TSvc
-	Id   int64
-	Head util.M
+	Svc TSvc
+	Id  int64
 }
 
 type EvtSvcDisconnected struct {

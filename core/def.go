@@ -13,20 +13,21 @@ import (
 )
 
 type option struct {
-	getNodeId  util.ToInt64
-	mongo      *Mongo
-	redis      *Redis
-	worker     Worker
-	node       kiwi.INode
-	services   []kiwi.IService
-	gate       *Gate
-	loggers    []kiwi.ILogger
-	afterStart func()
+	getId       util.ToInt64
+	mongo       *Mongo
+	redis       *Redis
+	worker      Worker
+	node        kiwi.INode
+	services    []kiwi.IService
+	gate        *Gate
+	loggers     []kiwi.ILogger
+	beforeStart func()
+	afterStart  func()
 }
 
-func SetNodeId(fn util.ToInt64) Option {
+func SetId(fn util.ToInt64) Option {
 	return func(o *option) {
-		o.getNodeId = fn
+		o.getId = fn
 	}
 }
 
@@ -39,6 +40,12 @@ func SetLoggers(loggers ...kiwi.ILogger) Option {
 func SetServices(services ...kiwi.IService) Option {
 	return func(o *option) {
 		o.services = services
+	}
+}
+
+func SetBefore(before func()) Option {
+	return func(o *option) {
+		o.beforeStart = before
 	}
 }
 
@@ -185,11 +192,14 @@ func Start(opts ...Option) {
 	InitRouter()
 	RegisterSvc(opt.services...)
 
+	if opt.beforeStart != nil {
+		opt.beforeStart()
+	}
 	if opt.gate != nil {
 		InitGate(opt.gate.receiver, opt.gate.options...)
 	}
 	nodeMeta := kiwi.GetNodeMeta()
-	nodeMeta.Init(opt.getNodeId())
+	nodeMeta.Init(opt.getId())
 	StartAllService()
 
 	if opt.mongo != nil {

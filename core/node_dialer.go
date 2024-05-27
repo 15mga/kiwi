@@ -20,14 +20,12 @@ type (
 	OnNetDialerDisconnected func(*nodeDialer, *util.Err)
 )
 
-func newNodeDialer(dialer kiwi.IDialer, svc kiwi.TSvc, nodeId int64, ver string, head util.M,
-	afterConnected func([]kiwi.INodeDialer), onConnected OnNetDialerConnected, onDisconnected OnNetDialerDisconnected) *nodeDialer {
+func newNodeDialer(dialer kiwi.IDialer, svc kiwi.TSvc, nodeId int64, ver string,
+	onConnected OnNetDialerConnected, onDisconnected OnNetDialerDisconnected) *nodeDialer {
 	d := &nodeDialer{
 		svc:            svc,
 		nodeId:         nodeId,
 		ver:            ver,
-		afterConnected: afterConnected,
-		head:           head,
 		dialer:         dialer,
 		onConnected:    onConnected,
 		onDisconnected: onDisconnected,
@@ -42,10 +40,8 @@ type nodeDialer struct {
 	svc            kiwi.TSvc
 	nodeId         int64
 	ver            string
-	head           util.M
 	dialer         kiwi.IDialer
 	currReconnect  int
-	afterConnected func([]kiwi.INodeDialer)
 	onConnected    OnNetDialerConnected
 	onDisconnected OnNetDialerDisconnected
 	ctx            context.Context
@@ -61,7 +57,7 @@ func (d *nodeDialer) heartbeat() {
 				ticker.Stop()
 				return
 			case <-ticker.C:
-				d.Send(Heartbeat, nil)
+				d.Send(0, Heartbeat)
 			}
 		}
 	}()
@@ -90,10 +86,6 @@ func (d *nodeDialer) NodeId() int64 {
 
 func (d *nodeDialer) Dialer() kiwi.IDialer {
 	return d.dialer
-}
-
-func (d *nodeDialer) Head() util.M {
-	return d.head
 }
 
 func (d *nodeDialer) connect() {
@@ -125,26 +117,32 @@ func (d *nodeDialer) reconnect() {
 	_ = d.dialer.Agent().Enable().IfEnable(d.connect)
 }
 
-func (d *nodeDialer) Send(bytes []byte, fnErr util.FnErr) {
-	d.sendWithCount(bytes, fnErr, 0)
+func (d *nodeDialer) Send(tid int64, bytes []byte) {
+	d.sendWithCount(tid, bytes, 0)
 }
 
-func (d *nodeDialer) sendWithCount(bytes []byte, fnErr util.FnErr, count uint8) {
+func (d *nodeDialer) sendWithCount(tid int64, bytes []byte, count uint8) {
 	err := d.dialer.Agent().Send(bytes)
 	if err == nil {
-		fnErr.Invoke(nil)
 		return
 	}
 	if err.Code() != util.EcClosed {
-		kiwi.Error(err)
-		fnErr.Invoke(err)
+		if tid > 0 {
+			kiwi.TE(tid, err)
+		} else {
+			kiwi.Error(err)
+		}
 		return
 	}
 	if count >= MaxSendRetry {
-		fnErr.Invoke(err)
+		if tid > 0 {
+			kiwi.TE(tid, err)
+		} else {
+			kiwi.Error(err)
+		}
 		return
 	}
 	time.AfterFunc(SendRetryDur, func() {
-		d.sendWithCount(bytes, fnErr, count+1)
+		d.sendWithCount(tid, bytes, count+1)
 	})
 }

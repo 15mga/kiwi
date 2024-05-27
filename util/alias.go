@@ -35,6 +35,7 @@ type (
 	FnInt32              func(int32)
 	FnUint32             func(uint32)
 	FnErr                func(*Err)
+	FnErrAny             func(*Err, []any)
 	FnMsg                func(IMsg)
 	FnInt64              func(int64)
 	FnInt64Bool          func(int64, bool)
