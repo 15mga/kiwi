@@ -139,15 +139,11 @@ func (p *packer) UnpackRequest(bytes []byte, pkg kiwi.IRcvRequest) (err *util.Er
 	return pkg.InitWithBytes(HdRequest, tid, head, json, payload)
 }
 
-func (p *packer) PackResponseOk(tid int64, head util.M, pkt []byte) ([]byte, *util.Err) {
+func (p *packer) PackResponseOk(tid int64, pkt []byte) ([]byte, *util.Err) {
 	var buffer util.ByteBuffer
 	buffer.InitCap(256)
 	buffer.WUint8(HdOk)
 	buffer.WInt64(tid)
-	err := buffer.WMAny(head)
-	if err != nil {
-		return nil, err
-	}
 	_, e := buffer.Write(pkt)
 	if e != nil {
 		return nil, util.NewErr(util.EcWriteFail, util.M{
@@ -157,15 +153,11 @@ func (p *packer) PackResponseOk(tid int64, head util.M, pkt []byte) ([]byte, *ut
 	return buffer.All(), nil
 }
 
-func (p *packer) UnpackResponseOk(bytes []byte, head util.M) (tid int64, payload []byte, err *util.Err) {
+func (p *packer) UnpackResponseOk(bytes []byte) (tid int64, payload []byte, err *util.Err) {
 	var buffer util.ByteBuffer
 	buffer.InitBytes(bytes)
 	buffer.SetPos(1)
 	tid, err = buffer.RInt64()
-	if err != nil {
-		return
-	}
-	err = buffer.RMAny(head)
 	if err != nil {
 		return
 	}
@@ -173,28 +165,20 @@ func (p *packer) UnpackResponseOk(bytes []byte, head util.M) (tid int64, payload
 	return
 }
 
-func (p *packer) PackResponseFail(tid int64, head util.M, code uint16) ([]byte, *util.Err) {
+func (p *packer) PackResponseFail(tid int64, code uint16) ([]byte, *util.Err) {
 	var buffer util.ByteBuffer
 	buffer.InitCap(13)
 	buffer.WUint8(HdFail)
 	buffer.WInt64(tid)
-	err := buffer.WMAny(head)
-	if err != nil {
-		return nil, err
-	}
 	buffer.WUint16(code)
 	return buffer.All(), nil
 }
 
-func (p *packer) UnpackResponseFail(bytes []byte, head util.M) (tid int64, code uint16, err *util.Err) {
+func (p *packer) UnpackResponseFail(bytes []byte) (tid int64, code uint16, err *util.Err) {
 	var buffer util.ByteBuffer
 	buffer.InitBytes(bytes)
 	buffer.SetPos(1)
 	tid, err = buffer.RInt64()
-	if err != nil {
-		return
-	}
-	err = buffer.RMAny(head)
 	if err != nil {
 		return
 	}

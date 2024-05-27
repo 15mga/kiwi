@@ -39,11 +39,11 @@ type (
 	FnMsg                func(IMsg)
 	FnInt64              func(int64)
 	FnInt64Bool          func(int64, bool)
+	FnInt64Uint16        func(int64, uint16)
 	FnInt642             func(int64, int64)
 	FnInt64Str           func(int64, string)
 	FnInt64Bytes         func(int64, []byte)
 	FnInt64M             func(int64, M)
-	FnInt64MBytes        func(int64, M, []byte)
 	FnInt64Any           func(int64, any)
 	FnInt64Err           func(int64, *Err)
 	FnInt64MErr          func(int64, M, *Err)
@@ -52,8 +52,6 @@ type (
 	FnInt642Any          func(int64, int64, any)
 	FnInt642Err          func(int64, int64, *Err)
 	FnInt64StrBool       func(int64, string, bool)
-	FnInt64MUint16       func(int64, M, uint16)
-	FnInt64MMsg          func(int64, M, IMsg)
 	Int64ToInt64         func(int64) int64
 	Int64ToStr           func(int64) string
 	Int64ToBool          func(int64) bool
@@ -143,11 +141,11 @@ func (f FnInt64Any) Invoke(v int64, obj any) {
 	f(v, obj)
 }
 
-func (f FnInt64MMsg) Invoke(v int64, head M, obj IMsg) {
+func (f FnInt64M) Invoke(v int64, head M) {
 	if f == nil {
 		return
 	}
-	f(v, head, obj)
+	f(v, head)
 }
 
 func (f FnErr) Invoke(err *Err) {

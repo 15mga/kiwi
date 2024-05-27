@@ -604,8 +604,7 @@ func (n *node) onRequest(agent kiwi.IAgent, bytes []byte) {
 }
 
 func (n *node) onResponseOk(agent kiwi.IAgent, bytes []byte) {
-	head := make(util.M)
-	tid, payload, err := kiwi.Packer().UnpackResponseOk(bytes, head)
+	tid, payload, err := kiwi.Packer().UnpackResponseOk(bytes)
 	if err != nil {
 		if agent != nil {
 			err.AddParam("addr", agent.Addr())
@@ -613,12 +612,11 @@ func (n *node) onResponseOk(agent kiwi.IAgent, bytes []byte) {
 		kiwi.Error(err)
 		return
 	}
-	kiwi.Router().OnResponseOkBytes(tid, head, payload)
+	kiwi.Router().OnResponseOkBytes(tid, payload)
 }
 
 func (n *node) onResponseFail(agent kiwi.IAgent, bytes []byte) {
-	head := make(util.M)
-	tid, code, err := kiwi.Packer().UnpackResponseFail(bytes, head)
+	tid, code, err := kiwi.Packer().UnpackResponseFail(bytes)
 	if err != nil {
 		if agent != nil {
 			err.AddParam("addr", agent.Addr())
@@ -626,7 +624,7 @@ func (n *node) onResponseFail(agent kiwi.IAgent, bytes []byte) {
 		kiwi.TE(tid, err)
 		return
 	}
-	kiwi.Router().OnResponseFail(tid, head, code)
+	kiwi.Router().OnResponseFail(tid, code)
 }
 
 func (n *node) onNotify(agent kiwi.IAgent, bytes []byte) {

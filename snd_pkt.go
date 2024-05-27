@@ -18,11 +18,12 @@ type ISndPacket interface {
 
 type ISndRequest interface {
 	ISndPacket
-	SetBytesHandler(fail util.FnInt64MUint16, ok util.FnInt64MBytes)
-	SetHandler(fail util.FnInt64MUint16, ok util.FnInt64MMsg)
-	OkBytes(head util.M, bytes []byte)
-	Ok(head util.M, msg util.IMsg)
-	Fail(head util.M, code uint16)
+	SetBytesHandler(fail util.FnUint16, ok util.FnBytes)
+	SetHandler(res util.IMsg, fail util.FnUint16, ok util.Fn)
+	SetChHandler(res util.IMsg, ch chan<- uint16)
+	OkBytes(bytes []byte)
+	Ok(res util.IMsg)
+	Fail(code uint16)
 	Error(err *util.Err)
 }
 

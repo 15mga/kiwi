@@ -25,7 +25,7 @@ type IRouter interface {
 	BindReq(svc TSvc, code TCode, fn FnRcvReq)
 	OnPush(pkt IRcvPush)
 	OnRequest(pkt IRcvRequest)
-	OnResponseOk(tid int64, head util.M, msg util.IMsg)
-	OnResponseOkBytes(tid int64, head util.M, bytes []byte)
-	OnResponseFail(tid int64, head util.M, code uint16)
+	OnResponseOk(tid int64, msg util.IMsg)
+	OnResponseOkBytes(tid int64, bytes []byte)
+	OnResponseFail(tid int64, code uint16)
 }

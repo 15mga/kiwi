@@ -67,28 +67,28 @@ func (s *router) DelRequest(tid int64) {
 	s.idToRequest.Remove(tid)
 }
 
-func (s *router) OnResponseOk(tid int64, head util.M, msg util.IMsg) {
+func (s *router) OnResponseOk(tid int64, msg util.IMsg) {
 	req, ok := s.idToRequest.Pop(tid)
 	if !ok {
 		return
 	}
-	req.Ok(head, msg)
+	req.Ok(msg)
 }
 
-func (s *router) OnResponseOkBytes(tid int64, head util.M, bytes []byte) {
+func (s *router) OnResponseOkBytes(tid int64, bytes []byte) {
 	req, ok := s.idToRequest.Pop(tid)
 	if !ok {
 		return
 	}
-	req.OkBytes(head, bytes)
+	req.OkBytes(bytes)
 }
 
-func (s *router) OnResponseFail(tid int64, head util.M, code uint16) {
+func (s *router) OnResponseFail(tid int64, code uint16) {
 	req, ok := s.idToRequest.Pop(tid)
 	if !ok {
 		return
 	}
-	req.Fail(head, code)
+	req.Fail(code)
 }
 
 func ActivePrcPus[Pus util.IMsg](pkt kiwi.IRcvPush, key string, handler func(kiwi.IRcvPush, Pus)) {

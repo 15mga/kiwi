@@ -28,7 +28,7 @@ func (p *RcvReqPkt) Ok(msg util.IMsg) {
 	}
 	p.Complete()
 	if p.senderId == kiwi.GetNodeMeta().NodeId {
-		kiwi.Router().OnResponseOk(p.tid, p.head, msg)
+		kiwi.Router().OnResponseOk(p.tid, msg)
 		return
 	}
 	var (
@@ -44,7 +44,7 @@ func (p *RcvReqPkt) Ok(msg util.IMsg) {
 		kiwi.Error(err)
 		return
 	}
-	res, err := kiwi.Packer().PackResponseOk(p.tid, p.head, payload)
+	res, err := kiwi.Packer().PackResponseOk(p.tid, payload)
 	if err != nil {
 		kiwi.Error(err)
 		return
@@ -62,10 +62,10 @@ func (p *RcvReqPkt) Err(err *util.Err) {
 	err.AddParam(string(p.msg.ProtoReflect().Descriptor().Name()), p.msg)
 	p.rcvPkt.Err(err)
 	if p.senderId == kiwi.GetNodeMeta().NodeId {
-		kiwi.Router().OnResponseFail(p.tid, p.head, err.Code())
+		kiwi.Router().OnResponseFail(p.tid, err.Code())
 		return
 	}
-	payload, e := kiwi.Packer().PackResponseFail(p.tid, p.head, err.Code())
+	payload, e := kiwi.Packer().PackResponseFail(p.tid, err.Code())
 	if e != nil {
 		kiwi.Error(e)
 		return
@@ -89,10 +89,10 @@ func (p *RcvReqPkt) Fail(code uint16) {
 	}
 	p.Complete()
 	if p.senderId == kiwi.GetNodeMeta().NodeId {
-		kiwi.Router().OnResponseFail(p.tid, p.head, code)
+		kiwi.Router().OnResponseFail(p.tid, code)
 		return
 	}
-	payload, e := kiwi.Packer().PackResponseFail(p.tid, p.head, code)
+	payload, e := kiwi.Packer().PackResponseFail(p.tid, code)
 	if e != nil {
 		kiwi.Error(e)
 		return
