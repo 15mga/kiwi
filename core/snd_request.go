@@ -17,6 +17,7 @@ const (
 	ReqHandlerBytes ReqHandler = iota
 	ReqHandlerMsg
 	ReqHandlerCh
+	ReqHandlerBytesCh
 )
 
 type SRequest struct {
@@ -24,30 +25,36 @@ type SRequest struct {
 	handlerType ReqHandler
 	timer       *time.Timer
 	okBytes     util.FnBytes
-	okMsg       util.Fn
-	okCh        chan<- uint16
+	okMsg       util.FnMsg
+	okCh        chan<- util.IMsg
+	okBytesCh   chan<- []byte
+	failCh      chan<- uint16
 	fail        util.FnUint16
-	res         util.IMsg
 	disposed    int32
 }
 
 func (r *SRequest) SetBytesHandler(fail util.FnUint16, ok util.FnBytes) {
 	r.handlerType = ReqHandlerBytes
+	r.fail = fail
 	r.okBytes = ok
-	r.fail = fail
 }
 
-func (r *SRequest) SetHandler(res util.IMsg, fail util.FnUint16, ok util.Fn) {
+func (r *SRequest) SetHandler(fail util.FnUint16, ok util.FnMsg) {
 	r.handlerType = ReqHandlerMsg
-	r.okMsg = ok
 	r.fail = fail
-	r.res = res
+	r.okMsg = ok
 }
 
-func (r *SRequest) SetChHandler(res util.IMsg, ch chan<- uint16) {
+func (r *SRequest) SetChHandler(failCh chan<- uint16, okCh chan<- util.IMsg) {
 	r.handlerType = ReqHandlerCh
-	r.okCh = ch
-	r.res = res
+	r.failCh = failCh
+	r.okCh = okCh
+}
+
+func (r *SRequest) SetBytesChHandler(failCh chan<- uint16, okCh chan<- []byte) {
+	r.handlerType = ReqHandlerBytesCh
+	r.failCh = failCh
+	r.okBytesCh = okCh
 }
 
 func (r *SRequest) OkBytes(bytes []byte) {
@@ -66,32 +73,41 @@ func (r *SRequest) OkBytes(bytes []byte) {
 		if r.okMsg == nil {
 			return
 		}
-		var err *util.Err
+		res, err := kiwi.Codec().SpawnRes(r.svc, r.code)
 		if r.json {
-			err = kiwi.Codec().JsonUnmarshal(bytes, r.res)
+			err = kiwi.Codec().JsonUnmarshal(bytes, res)
 		} else {
-			err = kiwi.Codec().PbUnmarshal(bytes, r.res)
+			err = kiwi.Codec().PbUnmarshal(bytes, res)
 		}
 		if err != nil {
 			r.Error(err)
 			return
 		}
-		r.okMsg()
+		r.okMsg(res)
 	case ReqHandlerCh:
 		if r.okCh == nil {
 			return
 		}
-		var err *util.Err
+		res, err := kiwi.Codec().SpawnRes(r.svc, r.code)
+		if err != nil {
+			kiwi.Fatal(err)
+			return
+		}
 		if r.json {
-			err = kiwi.Codec().JsonUnmarshal(bytes, r.res)
+			err = kiwi.Codec().JsonUnmarshal(bytes, res)
 		} else {
-			err = kiwi.Codec().PbUnmarshal(bytes, r.res)
+			err = kiwi.Codec().PbUnmarshal(bytes, res)
 		}
 		if err != nil {
 			r.Error(err)
 			return
 		}
-		close(r.okCh)
+		r.okCh <- res
+	case ReqHandlerBytesCh:
+		if r.okBytesCh == nil {
+			return
+		}
+		r.okBytesCh <- bytes
 	}
 }
 
@@ -101,7 +117,6 @@ func (r *SRequest) Ok(res util.IMsg) {
 	}
 	defer r.Dispose()
 
-	r.res = res
 	switch r.handlerType {
 	case ReqHandlerBytes:
 		var (
@@ -122,11 +137,28 @@ func (r *SRequest) Ok(res util.IMsg) {
 		}
 	case ReqHandlerMsg:
 		if r.okMsg != nil {
-			r.okMsg()
+			r.okMsg(res)
 		}
 	case ReqHandlerCh:
 		if r.okCh != nil {
-			close(r.okCh)
+			r.okCh <- res
+		}
+	case ReqHandlerBytesCh:
+		var (
+			bytes []byte
+			err   *util.Err
+		)
+		if r.json {
+			bytes, err = kiwi.Codec().JsonMarshal(res)
+		} else {
+			bytes, err = kiwi.Codec().PbMarshal(res)
+		}
+		if err != nil {
+			r.Error(err)
+			return
+		}
+		if r.okBytesCh != nil {
+			r.okBytesCh <- bytes
 		}
 	}
 }
@@ -139,16 +171,16 @@ func (r *SRequest) Fail(code uint16) {
 
 	switch r.handlerType {
 	case ReqHandlerBytes:
-		if r.fail != nil {
-			r.fail(code)
-		}
+		fallthrough
 	case ReqHandlerMsg:
 		if r.fail != nil {
 			r.fail(code)
 		}
 	case ReqHandlerCh:
-		if r.okCh != nil {
-			r.okCh <- code
+		fallthrough
+	case ReqHandlerBytesCh:
+		if r.failCh != nil {
+			r.failCh <- code
 		}
 	}
 }
@@ -226,24 +258,26 @@ func newRequest(pid int64, head util.M, json bool, msg util.IMsg) *SRequest {
 	return req
 }
 
-func Req(pid int64, head util.M, req, res util.IMsg) uint16 {
+func Req[ResT util.IMsg](pid int64, head util.M, req util.IMsg) (res ResT, code uint16) {
 	request := newRequest(pid, head, false, req)
-	ch := make(chan uint16, 1)
-	request.SetChHandler(res, ch)
+	failCh := make(chan uint16, 1)
+	okCh := make(chan util.IMsg, 1)
+	request.SetChHandler(failCh, okCh)
 	kiwi.Router().AddRequest(request)
 	kiwi.Node().Request(request)
-	return <-ch
+	select {
+	case code = <-failCh:
+	case r := <-okCh:
+		res = r.(ResT)
+	}
+	return
 }
 
 func ReqBytes(pid int64, svc kiwi.TSvc, code kiwi.TCode, head util.M, json bool, payload []byte) ([]byte, uint16) {
 	req := newBytesRequest(pid, svc, code, head, json, payload)
 	okCh := make(chan []byte)
 	failCh := make(chan uint16, 1)
-	req.SetBytesHandler(func(code uint16) {
-		failCh <- code
-	}, func(payload []byte) {
-		okCh <- payload
-	})
+	req.SetBytesChHandler(failCh, okCh)
 	kiwi.Router().AddRequest(req)
 	kiwi.Node().Request(req)
 	select {
@@ -254,13 +288,18 @@ func ReqBytes(pid int64, svc kiwi.TSvc, code kiwi.TCode, head util.M, json bool,
 	}
 }
 
-func ReqNode(nodeId, pid int64, head util.M, req, res util.IMsg) uint16 {
+func ReqNode(nodeId, pid int64, head util.M, req util.IMsg) (res util.IMsg, code uint16) {
 	request := newRequest(pid, head, false, req)
-	ch := make(chan uint16, 1)
-	request.SetChHandler(res, ch)
+	failCh := make(chan uint16, 1)
+	okCh := make(chan util.IMsg, 1)
+	request.SetChHandler(failCh, okCh)
 	kiwi.Router().AddRequest(request)
 	kiwi.Node().RequestNode(nodeId, request)
-	return <-ch
+	select {
+	case code = <-failCh:
+	case res = <-okCh:
+	}
+	return
 }
 
 func ReqNodeBytes(nodeId, pid int64, svc kiwi.TSvc, code kiwi.TCode, head util.M, json bool, payload []byte) ([]byte, uint16) {
@@ -282,42 +321,59 @@ func ReqNodeBytes(nodeId, pid int64, svc kiwi.TSvc, code kiwi.TCode, head util.M
 	}
 }
 
-func AsyncReq(pid int64, head util.M, req, res util.IMsg, onFail util.FnUint16, onOk util.Fn) {
+func AsyncReq(pid int64, head util.M, req util.IMsg, onFail util.FnUint16, onOk func(util.IMsg)) int64 {
 	request := newRequest(pid, head, false, req)
-	request.SetHandler(res, onFail, onOk)
+	request.SetHandler(onFail, onOk)
 	kiwi.Router().AddRequest(request)
 	kiwi.Node().Request(request)
+	return request.tid
 }
 
 func AsyncReqBytes(pid int64, svc kiwi.TSvc, code kiwi.TCode, head util.M, json bool, payload []byte,
-	onFail util.FnUint16, onOk util.FnBytes) {
+	onFail util.FnUint16, onOk util.FnBytes) int64 {
 	req := newBytesRequest(pid, svc, code, head, json, payload)
 	req.SetBytesHandler(onFail, onOk)
 	kiwi.Router().AddRequest(req)
 	kiwi.Node().Request(req)
+	return req.tid
 }
 
-func AsyncReqNode(pid, nodeId int64, head util.M, req, res util.IMsg, onFail util.FnUint16, onOk util.Fn) {
+func AsyncReqNode[ResT util.IMsg](pid, nodeId int64, head util.M, req util.IMsg, onFail util.FnUint16, onOk func(ResT)) int64 {
 	request := newRequest(pid, head, false, req)
-	request.SetHandler(res, onFail, onOk)
+	request.SetHandler(onFail, func(msg util.IMsg) {
+		if onOk != nil {
+			onOk(msg.(ResT))
+		}
+	})
 	kiwi.Router().AddRequest(request)
 	kiwi.Node().RequestNode(nodeId, request)
+	return request.tid
 }
 
 func AsyncReqNodeBytes(pid, nodeId int64, svc kiwi.TSvc, code kiwi.TCode, head util.M, json bool, payload []byte,
-	onFail util.FnUint16, onOk util.FnBytes) {
+	onFail util.FnUint16, onOk util.FnBytes) int64 {
 	req := newBytesRequest(pid, svc, code, head, json, payload)
 	req.SetBytesHandler(onFail, onOk)
 	kiwi.Router().AddRequest(req)
 	kiwi.Node().RequestNode(nodeId, req)
+	return req.tid
 }
 
-func AsyncSubReq(pkt kiwi.IRcvRequest, req, res util.IMsg, resFail util.FnUint16, resOk util.Fn) {
+func AsyncReqNodeBytesWithHead(pid, nodeId int64, svc kiwi.TSvc, code kiwi.TCode, head util.M, json bool, payload []byte,
+	onFail util.FnUint16, onOk util.FnBytes) int64 {
+	req := newBytesRequest(pid, svc, code, head, json, payload)
+	req.SetBytesHandler(onFail, onOk)
+	kiwi.Router().AddRequest(req)
+	kiwi.Node().RequestNode(nodeId, req)
+	return req.tid
+}
+
+func AsyncSubReq(pkt kiwi.IRcvRequest, req util.IMsg, resFail util.FnUint16, resOk func(util.IMsg)) int64 {
 	head := util.M{}
 	pkt.Head().CopyTo(head)
 	switch pkt.Worker() {
 	case kiwi.EWorkerGo:
-		AsyncReq(pkt.Tid(), head, req, res, func(code uint16) {
+		return AsyncReq(pkt.Tid(), head, req, func(code uint16) {
 			if resFail == nil {
 				return
 			}
@@ -327,69 +383,68 @@ func AsyncSubReq(pkt kiwi.IRcvRequest, req, res util.IMsg, resFail util.FnUint16
 			if e != nil {
 				kiwi.TE3(pkt.Tid(), util.EcServiceErr, e)
 			}
-		}, func() {
+		}, func(res util.IMsg) {
 			if resOk == nil {
 				return
 			}
-			e := ants.Submit(resOk)
+			e := ants.Submit(func() {
+				resOk(res)
+			})
 			if e != nil {
 				kiwi.TE3(pkt.Tid(), util.EcServiceErr, e)
 			}
 		})
 	case kiwi.EWorkerActive:
-		AsyncReq(pkt.Tid(), head, req, res, func(code uint16) {
+		return AsyncReq(pkt.Tid(), head, req, func(code uint16) {
 			if resFail == nil {
 				return
 			}
 			worker.Active().Push(pkt.WorkerKey(), func(data any) {
 				resFail(data.(uint16))
 			}, code)
-		}, func() {
+		}, func(res util.IMsg) {
 			if resOk == nil {
 				return
 			}
 			worker.Active().Push(pkt.WorkerKey(), func(data any) {
-				resOk()
-			}, nil)
+				resOk(data.(util.IMsg))
+			}, res)
 		})
 	case kiwi.EWorkerShare:
-		AsyncReq(pkt.Tid(), head, req, res, func(code uint16) {
+		return AsyncReq(pkt.Tid(), head, req, func(code uint16) {
 			if resFail == nil {
 				return
 			}
 			worker.Share().Push(pkt.WorkerKey(), func(data any) {
 				resFail(data.(uint16))
 			}, code)
-		}, func() {
+		}, func(res util.IMsg) {
 			if resOk == nil {
 				return
 			}
 			worker.Share().Push(pkt.WorkerKey(), func(data any) {
-				resOk()
-			}, nil)
+				resOk(data.(util.IMsg))
+			}, res)
 		})
 	case kiwi.EWorkerGlobal:
-		AsyncReq(pkt.Tid(), head, req, res, func(code uint16) {
+		return AsyncReq(pkt.Tid(), head, req, func(code uint16) {
 			if resFail == nil {
 				return
 			}
 			worker.Global().Push(func(data any) {
 				resFail(data.(uint16))
 			}, code)
-		}, func() {
+		}, func(res util.IMsg) {
 			if resOk == nil {
 				return
 			}
 			worker.Global().Push(func(data any) {
-				resOk()
-			}, nil)
+				resOk(data.(util.IMsg))
+			}, res)
 		})
 	case kiwi.EWorkerSelf:
-		AsyncReq(pkt.Tid(), head, req, res, func(code uint16) {
-			if resFail == nil {
-				return
-			}
-			resFail(code)
-		}, resOk.Invoke)
+		return AsyncReq(pkt.Tid(), head, req, resFail, resOk)
+	default:
+		return 0
 	}
 }
